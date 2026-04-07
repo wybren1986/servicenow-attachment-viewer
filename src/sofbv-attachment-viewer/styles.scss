@@ -1,0 +1,555 @@
+@import '@servicenow/sass-kit/host';
+
+:host {
+	display: block;
+	height: 100%;
+}
+
+body {
+	margin: 0px !important;
+}
+
+// ─── ROOT LAYOUT (sidebar + main) ────────────────────────────────────────────
+
+.av-root {
+	display: grid;
+	grid-template-columns: 320px 1fr;
+	height: 100vh;
+	background-color: $now-color--neutral-2;
+	overflow: hidden;
+}
+
+// ─── EMPTY / ERROR STATES ────────────────────────────────────────────────────
+
+.av-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	height: 100vh;
+	gap: $now-global-space--md;
+	color: $now-color--neutral-18;
+	font-size: 1rem;
+}
+
+.av-alert {
+	background-color: #fff3cd;
+	border: 1px solid #ffc107;
+	border-radius: 6px;
+	padding: $now-global-space--md $now-global-space--lg;
+	color: #856404;
+	max-width: 500px;
+}
+
+// ─── LOADING SPINNER ─────────────────────────────────────────────────────────
+
+.av-spinner {
+	width: 32px;
+	height: 32px;
+	border: 3px solid $now-color--neutral-5;
+	border-top-color: #0073e6;
+	border-radius: 50%;
+	animation: av-spin 0.8s linear infinite;
+}
+
+@keyframes av-spin {
+	to { transform: rotate(360deg); }
+}
+
+// ─── SIDEBAR ─────────────────────────────────────────────────────────────────
+
+.av-sidebar {
+	background-color: $now-color--neutral-0;
+	border-right: 1px solid var(--now-color--neutral-5, gray);
+	overflow-y: auto;
+	padding: $now-global-space--sm;
+}
+
+.av-list {
+	list-style: none !important;
+	padding: 0 !important;
+	margin: 0;
+}
+
+.av-list .av-list-item {
+	list-style: none !important;
+}
+
+.av-list-item {
+	display: flex;
+	align-items: flex-start;
+	gap: $now-global-space--sm;
+	padding: $now-global-space--md $now-global-space--sm;
+	border-radius: 6px;
+	border: 1px solid transparent;
+	cursor: pointer;
+	margin-bottom: $now-global-space--xxs;
+	transition: background-color 0.1s ease;
+
+	&:hover {
+		background-color: $now-color--neutral-2;
+	}
+
+	&.-active,
+	&.-active:hover {
+		background-color: rgba(0, 115, 230, 0.07);
+		border-color: rgba(0, 115, 230, 0.2);
+	}
+}
+
+.av-list-item-info {
+	flex: 1;
+	min-width: 0;
+}
+
+.av-list-item-name {
+	font-size: 0.9rem;
+	font-weight: 500;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: $now-color--neutral-18;
+}
+
+.av-list-item-meta {
+	font-size: 0.75rem;
+	color: $now-color--neutral-12;
+	margin-top: $now-global-space--xxs;
+}
+
+// ─── FILE ICON ────────────────────────────────────────────────────────────────
+
+.av-file-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	margin-top: 1px;
+
+	svg {
+		display: block;
+	}
+}
+
+// ─── MAIN AREA ────────────────────────────────────────────────────────────────
+
+.av-main {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+
+	.av-header {
+		flex-shrink: 0;
+		height: 72px;
+	}
+
+	.av-content {
+		flex: 1;
+		min-height: 0;
+	}
+}
+
+// ─── HEADER ──────────────────────────────────────────────────────────────────
+
+.av-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0 $now-global-space--xl;
+	background-color: $now-color--neutral-0;
+	border-bottom: 1px solid var(--now-color--neutral-5, gray);
+}
+
+.av-header-title {
+	display: flex;
+	align-items: center;
+	gap: $now-global-space--sm;
+	min-width: 0;
+}
+
+.av-header-filename {
+	font-size: 1rem;
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 400px;
+	color: $now-color--neutral-18;
+}
+
+.av-header-meta {
+	font-size: 0.75rem;
+	color: $now-color--neutral-12;
+	margin-top: 2px;
+}
+
+.av-header-actions {
+	display: flex;
+	align-items: center;
+	gap: $now-global-space--xs;
+	flex-shrink: 0;
+}
+
+// ─── ZOOM CONTROLS ───────────────────────────────────────────────────────────
+
+.av-zoom-controls {
+	display: flex;
+	align-items: center;
+	gap: $now-global-space--xs;
+	border-right: 1px solid $now-color--neutral-5;
+	padding-right: $now-global-space--md;
+	margin-right: $now-global-space--xs;
+}
+
+.av-zoom-level {
+	font-size: 0.8rem;
+	min-width: 36px;
+	text-align: center;
+	color: $now-color--neutral-18;
+}
+
+// ─── ICON BUTTON ─────────────────────────────────────────────────────────────
+
+.av-icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	padding: $now-global-space--xs;
+	cursor: pointer;
+	color: $now-color--neutral-18;
+	transition: background-color 0.1s ease;
+
+	&:hover {
+		background-color: $now-color--neutral-2;
+		border-color: $now-color--neutral-5;
+	}
+
+	&:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+
+		&:hover {
+			background: transparent;
+			border-color: transparent;
+		}
+	}
+
+	span {
+		display: inline-flex;
+	}
+
+	svg {
+		display: block;
+	}
+}
+
+// ─── CONTENT AREA ────────────────────────────────────────────────────────────
+
+.av-content {
+	overflow-y: auto;
+	background-color: var(--now-color--neutral-2, lightgray);
+	padding: $now-global-space--xl $now-global-space--lg;
+	display: flex;
+	justify-content: center;
+	align-items: flex-start;
+
+	// For iframe previews, remove padding so they can fill the space
+	&:has(.av-preview.-pdf),
+	&:has(.av-preview.-iframe) {
+		padding: $now-global-space--lg;
+	}
+}
+
+// ─── PREVIEW STATES ──────────────────────────────────────────────────────────
+
+.av-preview-state {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: $now-global-space--md;
+	padding: 80px 40px;
+	color: $now-color--neutral-12;
+}
+
+// ─── PREVIEW CONTAINERS ──────────────────────────────────────────────────────
+
+.av-preview {
+	background-color: var(--now-color--neutral-0, white);
+	border-radius: 8px;
+	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+	overflow: hidden;
+
+	// PDF / DOCX / XLSX / MSG — all iframes
+	&.-pdf,
+	&.-iframe {
+		width: min(900px, 95%);
+		height: calc(100vh - 140px);
+
+		iframe,
+		object {
+			width: 100%;
+			height: 100%;
+			display: block;
+			border: none;
+		}
+	}
+
+	// Image
+	&.-image {
+		padding: $now-global-space--xl;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		max-width: 90%;
+	}
+
+	// Text
+	&.-text {
+		width: min(900px, 95%);
+		padding: 0;
+		min-height: calc(100vh - 140px);
+	}
+
+	// Unsupported
+	&.-unsupported {
+		padding: 80px 40px;
+	}
+}
+
+// ─── IMAGE ───────────────────────────────────────────────────────────────────
+
+.av-preview-img {
+	max-width: 100%;
+	max-height: calc(100vh - 200px);
+	object-fit: contain;
+	border-radius: 4px;
+	display: block;
+}
+
+// ─── EXCEL ───────────────────────────────────────────────────────────────────
+
+.av-excel-container {
+	overflow: auto;
+	max-height: calc(100vh - 200px);
+
+	table {
+		border-collapse: collapse;
+		width: 100%;
+		font-size: 12px;
+	}
+
+	td, th {
+		border: 1px solid $now-color--neutral-5;
+		padding: 6px 10px;
+		white-space: nowrap;
+		max-width: 280px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		vertical-align: top;
+	}
+
+	th {
+		background-color: $now-color--neutral-2;
+		font-weight: 600;
+		position: sticky;
+		top: 0;
+		z-index: 1;
+	}
+
+	tr:nth-child(even) td {
+		background-color: $now-color--neutral-1;
+	}
+
+	tr:hover td {
+		background-color: $now-color--neutral-3;
+	}
+}
+
+// ─── WORD ────────────────────────────────────────────────────────────────────
+
+.av-word-content {
+	font-family: 'Calibri', 'Arial', sans-serif;
+	font-size: 11pt;
+	line-height: 1.6;
+	color: $now-color--neutral-18;
+
+	p { margin-bottom: $now-global-space--sm; }
+	h1, h2, h3, h4 { margin-top: $now-global-space--lg; margin-bottom: $now-global-space--sm; }
+	table { border-collapse: collapse; width: 100%; margin-bottom: $now-global-space--md; }
+	td, th { border: 1px solid $now-color--neutral-5; padding: 6px 8px; }
+}
+
+// ─── EMAIL / MSG ─────────────────────────────────────────────────────────────
+
+.av-email-card {
+	height: 100%;
+}
+
+.av-email-headers {
+	background-color: $now-color--neutral-2;
+	border-radius: 6px;
+	padding: $now-global-space--lg;
+	margin-bottom: $now-global-space--lg;
+}
+
+.av-email-row {
+	display: flex;
+	gap: $now-global-space--md;
+	margin-bottom: $now-global-space--sm;
+
+	&:last-child { margin-bottom: 0; }
+
+	label {
+		font-weight: 600;
+		min-width: 90px;
+		color: $now-color--neutral-14;
+		font-size: 0.85rem;
+	}
+}
+
+.av-email-subject {
+	font-weight: 600;
+}
+
+.av-email-body {
+	border: 1px solid $now-color--neutral-5;
+	border-radius: 6px;
+	padding: $now-global-space--lg;
+	min-height: 160px;
+	max-height: 500px;
+	overflow-y: auto;
+	font-size: 14px;
+	line-height: 1.6;
+
+	p { margin-bottom: $now-global-space--md; }
+}
+
+.av-email-attachments {
+	margin-top: $now-global-space--lg;
+	padding-top: $now-global-space--lg;
+	border-top: 1px solid $now-color--neutral-5;
+
+	h4 {
+		font-size: 0.9rem;
+		margin-bottom: $now-global-space--sm;
+		color: $now-color--neutral-14;
+	}
+
+	ul {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+	}
+
+	li {
+		padding: $now-global-space--xs $now-global-space--sm;
+		background-color: $now-color--neutral-2;
+		border-radius: 4px;
+		margin-bottom: $now-global-space--xxs;
+		font-size: 0.85rem;
+	}
+}
+
+.av-meta {
+	color: $now-color--neutral-12;
+}
+
+// ─── TEXT FILE ───────────────────────────────────────────────────────────────
+
+.av-preview-text {
+	font-family: 'Courier New', 'Menlo', monospace;
+	font-size: 13px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-break: break-all;
+	background-color: $now-color--neutral-2;
+	padding: $now-global-space--lg;
+	border-radius: 8px;
+	margin: 0;
+	width: 100%;
+	min-height: calc(100vh - 140px);
+	box-sizing: border-box;
+}
+
+.av-text-content {
+	font-family: 'Courier New', 'Menlo', monospace;
+	font-size: 13px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	background-color: $now-color--neutral-2;
+	padding: $now-global-space--lg;
+	border-radius: 6px;
+	max-height: calc(100vh - 220px);
+	overflow: auto;
+	margin: 0;
+}
+
+// ─── UNSUPPORTED ─────────────────────────────────────────────────────────────
+
+.av-unsupported {
+	text-align: center;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: $now-global-space--md;
+
+	svg {
+		opacity: 0.3;
+		width: 48px;
+		height: 48px;
+	}
+
+	h3 {
+		margin: 0;
+		font-size: 1.1rem;
+		color: $now-color--neutral-18;
+	}
+
+	p {
+		margin: 0;
+		color: $now-color--neutral-12;
+	}
+}
+
+// ─── FETCH BUTTON (lokaal testen) ─────────────────────────────────────────────
+
+.av-fetch-btn {
+	display: block;
+	margin: $now-global-space--sm auto 0;
+	padding: $now-global-space--xs $now-global-space--md;
+	background: $now-color--neutral-0;
+	border: 1px solid $now-color--neutral-5;
+	border-radius: 6px;
+	cursor: pointer;
+	font-size: 0.8rem;
+	color: $now-color--neutral-14;
+	width: 100%;
+
+	&:hover {
+		background-color: $now-color--neutral-2;
+	}
+}
+
+// ─── RESPONSIVE ──────────────────────────────────────────────────────────────
+
+@media (max-width: 768px) {
+	.av-root {
+		grid-template-columns: 1fr;
+		grid-template-rows: 200px 1fr;
+	}
+
+	.av-sidebar {
+		border-right: none;
+		border-bottom: 1px solid $now-color--neutral-5;
+	}
+
+	.av-header-filename {
+		max-width: 200px;
+	}
+}

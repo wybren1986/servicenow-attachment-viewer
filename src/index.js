@@ -1,0 +1,1 @@
+import './sofbv-attachment-viewer';

@@ -1,0 +1,36 @@
+{
+  "components": {
+    "sofbv-attachment-viewer": {
+      "innerComponents": [
+        "@servicenow/now-button"
+      ],
+      "uiBuilder": {
+        "associatedTypes": [
+          "global.core",
+          "global.landing-page"
+        ],
+        "label": "Attachment Viewer",
+        "tileIcon": "./tile-icon/generic-tile-icon.svg",
+        "description": "A component to view attachments in the browser.",
+        "category": "primitives"
+      },
+      "properties": [
+        {
+          "name": "table",
+          "label": "Table",
+          "fieldType": "string",
+          "required": true,
+          "defaultValue": "incident"
+        },
+        {
+          "name": "sysid",
+          "label": "Record Sys ID",
+          "fieldType": "string",
+          "required": true,
+          "defaultValue": "d24d517d9737fe505e06b586f053af11"
+        }
+      ]
+    }
+  },
+  "scopeName": "x_sofbv_sofiebv_0"
+}
