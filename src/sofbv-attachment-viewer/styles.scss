@@ -20,6 +20,7 @@ body {
 	max-height: 100vh;
 	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 	overflow: hidden;
+	position: relative;
 }
 
 // ─── EMPTY / ERROR STATES ────────────────────────────────────────────────────
@@ -33,6 +34,24 @@ body {
 	gap: $now-global-space--md;
 	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 	font-size: 1rem;
+	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
+}
+
+.av-empty-card {
+	background: rgb(var(--now-color--neutral-0, 255, 255, 255));
+	border-radius: 12px;
+	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+	padding: 48px 64px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+.av-empty-title {
+	margin: 0 0 16px;
+	font-size: 1.25rem;
+	font-weight: 600;
+	color: rgb(var(--now-color--neutral-12, 88, 90, 99));
 }
 
 .av-alert {
@@ -64,8 +83,15 @@ body {
 .av-sidebar {
 	background-color: rgb(var(--now-color--neutral-0, 255, 255, 255));
 	border-right: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
-	overflow-y: auto;
-	padding: $now-global-space--sm;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+
+	.av-list {
+		flex: 1;
+		overflow-y: auto;
+		padding: $now-global-space--sm;
+	}
 }
 
 .av-list {
@@ -386,6 +412,7 @@ body {
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 	box-sizing: border-box;
 	overflow-wrap: break-word;
+	overflow: hidden;
 	flex-shrink: 0;
 	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 	font-size: 14px;
@@ -402,12 +429,16 @@ body {
 	table {
 		border-collapse: collapse;
 		width: 100%;
+		max-width: 100%;
+		table-layout: fixed;
 		margin-bottom: 16px;
 	}
 
 	td, th {
 		border: 1px solid #e2e8f0;
 		padding: 6px 10px;
+		overflow: hidden;
+		word-wrap: break-word;
 	}
 
 	th {
@@ -417,6 +448,7 @@ body {
 
 	img {
 		max-width: 100%;
+		height: auto;
 	}
 
 	@media (max-width: 900px) {
@@ -440,12 +472,17 @@ body {
 }
 
 .av-msg-body {
+	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+	font-size: 14px;
+	line-height: 1.6;
+
+	* {
+		font-family: inherit !important;
+	}
+
 	pre {
 		white-space: pre-wrap;
-		font-family: inherit;
-		font-size: 14px;
 		margin: 0;
-		line-height: 1.6;
 	}
 }
 
@@ -634,7 +671,7 @@ body {
 	line-height: 1.5;
 	white-space: pre-wrap;
 	word-break: break-all;
-	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
+	background-color: rgb(var(--now-color--neutral-0, 255, 255, 255));
 	padding: $now-global-space--lg;
 	border-radius: 8px;
 	margin: 0;
@@ -684,11 +721,132 @@ body {
 	}
 }
 
-// ─── DOWNLOAD LINK WRAPPER ────────────────────────────────────────────────────
+// ─── SIDEBAR ACTIONS ─────────────────────────────────────────────────────────
 
-.av-download-link {
+.av-sidebar-actions {
+	display: flex;
+	align-items: center;
+	gap: $now-global-space--xs;
+	padding: $now-global-space--sm;
+	border-top: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
+	flex-shrink: 0;
+}
+
+.av-upload-wrap {
+	flex: 1;
+	min-width: 0;
+
+	now-button {
+		display: block;
+	}
+}
+
+// ─── DRAG & DROP OVERLAY ─────────────────────────────────────────────────────
+
+.av-drop-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 100;
+	background: rgba(0, 0, 0, 0.3);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	pointer-events: none;
+}
+
+.av-drop-message,
+.av-upload-card {
+	background: #fff;
+	border-radius: 12px;
+	box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+	padding: 32px 48px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	color: #0073e6;
+	font-size: 1rem;
+	font-weight: 600;
+
+	p {
+		margin: 0;
+	}
+
+	&.-error {
+		color: #e53e3e;
+		max-width: 500px;
+		text-align: center;
+
+		p {
+			font-weight: 500;
+			font-size: 0.9rem;
+			line-height: 1.5;
+		}
+	}
+}
+
+// ─── CONFIRM DIALOG ──────────────────────────────────────────────────────────
+
+.av-confirm-card {
+	background: #fff;
+	border-radius: 12px;
+	box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+	padding: 32px 40px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	max-width: min(500px, 90vw);
+	text-align: center;
+	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
+	font-size: 0.95rem;
+	line-height: 1.5;
+	word-break: break-word;
+
+	p { margin: 0; }
+}
+
+.av-confirm-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.av-btn {
+	padding: 8px 16px;
+	border: none;
+	border-radius: 6px;
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+
+	&.-danger {
+		background: #e53e3e;
+		color: #fff;
+
+		&:hover {
+			background: #c53030;
+		}
+	}
+
+	&.-secondary {
+		background: rgb(var(--now-color--neutral-2, 244, 245, 247));
+		color: rgb(var(--now-color--neutral-18, 29, 29, 29));
+
+		&:hover {
+			background: rgb(var(--now-color--neutral-3, 236, 237, 240));
+		}
+	}
+}
+
+// ─── ICON / DOWNLOAD LINK WRAPPERS ───────────────────────────────────────────
+
+.av-download-link,
+.av-icon-wrap {
 	text-decoration: none;
 	color: inherit;
+	display: inline-flex;
+	cursor: pointer;
 }
 
 // ─── RESPONSIVE ──────────────────────────────────────────────────────────────

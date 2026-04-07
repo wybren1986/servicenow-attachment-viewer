@@ -76,7 +76,7 @@ const downloadUrl = (sys_id) => `/api/now/attachment/${sys_id}/file`;
 
 const PREVIEW_CATS = ['pdf', 'word', 'excel', 'msg', 'text'];
 
-const buildMsgHtml = (MsgReader, buf) => {
+const buildMsgHtml = (MsgReader, buf, rawBuf) => {
 	const reader = new MsgReader(buf);
 	const d = reader.getFileData();
 	const from = d.senderName ? `${d.senderName} &lt;${d.senderEmail || ''}&gt;` : (d.senderEmail || '—');
@@ -115,9 +115,28 @@ const buildMsgHtml = (MsgReader, buf) => {
 			${fileListHtml ? `<ul style="list-style:none;padding:0;margin:8px 0 0">${fileListHtml}</ul>` : ''}
 		</div>` : '';
 
-	const bodyHtml = d.body
-		? `<pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;margin:0;line-height:1.6">${d.body}</pre>`
-		: '<em style="color:#718096">Geen inhoud</em>';
+	// Try to extract HTML body from raw buffer if plaintext body is missing
+	let bodyHtml;
+	if (d.body) {
+		bodyHtml = `<pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;margin:0;line-height:1.6">${d.body}</pre>`;
+	} else {
+		// MsgReader doesn't parse HTML body (MAPI 0x1013), extract from raw buffer
+		// Try Windows-1252 first (common for Outlook), fallback to UTF-8
+		let rawStr;
+		try {
+			rawStr = new TextDecoder('windows-1252').decode(new Uint8Array(rawBuf));
+		} catch (_) {
+			rawStr = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(rawBuf));
+		}
+		const htmlStart = rawStr.indexOf('<html');
+		const htmlEnd = rawStr.indexOf('</html>');
+		if (htmlStart > -1 && htmlEnd > -1) {
+			bodyHtml = rawStr.substring(rawStr.indexOf('<body', htmlStart), htmlEnd + 7)
+				.replace(/<\/?body[^>]*>/gi, '');
+		} else {
+			bodyHtml = '<em style="color:#718096">Geen inhoud</em>';
+		}
+	}
 
 	return `
 		<div class="av-msg-header">
@@ -213,13 +232,77 @@ const fetchPreview = (attachment, updateState) => {
 				updateState({ previewSheets: sheets, activeSheet: 0, previewLoading: false });
 			}
 			if (cat === 'msg') {
-				const html = buildMsgHtml(MsgReader, buf);
+				const html = buildMsgHtml(MsgReader, buf, buf);
 				updateState({ previewHtml: html, previewLoading: false });
 			}
 		})
 		.catch(err => {
 			console.error('[AV] Preview error:', err);
 			updateState({ previewLoading: false });
+		});
+};
+
+// ─── Upload attachments ──────────────────────────────────────────────────────
+
+const uploadFile = (file, table, sysid, updateState) => {
+	const url = `/api/now/attachment/file?table_name=${table}&table_sys_id=${sysid}&file_name=${encodeURIComponent(file.name)}`;
+	updateState({ uploading: true });
+
+	fetch(url, {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': file.type || 'application/octet-stream' },
+		body: file
+	})
+		.then(res => {
+			if (!res.ok) throw new Error('Upload failed: ' + res.status);
+			return res.json();
+		})
+		.then(() => {
+			updateState({ uploading: false });
+			fetchAttachments(table, sysid, updateState);
+		})
+		.catch(err => {
+			console.error('[AV] Upload error:', err);
+			updateState({ uploading: false });
+		});
+};
+
+const MAX_FILE_SIZE = 24 * 1024 * 1024; // 24MB ServiceNow default limit
+
+const uploadFiles = (files, table, sysid, updateState) => {
+	if (!files || !files.length || !sysid) return;
+
+	const fileList = Array.from(files);
+	const tooLarge = fileList.filter(f => f.size > MAX_FILE_SIZE);
+	if (tooLarge.length) {
+		const names = tooLarge.map(f => `${f.name} (${formatSize(f.size)})`).join(', ');
+		updateState({ uploadError: `Bestand(en) te groot (max ${formatSize(MAX_FILE_SIZE)}): ${names}` });
+		return;
+	}
+
+	updateState({ uploading: true, uploadError: null });
+	const uploads = fileList.map(file => {
+		const url = `/api/now/attachment/file?table_name=${table}&table_sys_id=${sysid}&file_name=${encodeURIComponent(file.name)}`;
+		return fetch(url, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': file.type || 'application/octet-stream' },
+			body: file
+		}).then(res => {
+			if (!res.ok) throw new Error(`Upload mislukt voor ${file.name}: ${res.status}`);
+			return res;
+		});
+	});
+	Promise.all(uploads)
+		.then(() => {
+			updateState({ uploading: false });
+			fetchAttachments(table, sysid, updateState);
+		})
+		.catch(err => {
+			console.error('[AV] Upload error:', err);
+			updateState({ uploading: false, uploadError: err.message });
+			fetchAttachments(table, sysid, updateState);
 		});
 };
 
@@ -350,8 +433,8 @@ const renderPreview = (attachment, state, dispatch) => {
 				{fileIcon(file_type)}
 				<h3>{file_name}</h3>
 				<p>Preview niet beschikbaar voor dit bestandstype</p>
-				<a href={url} download={file_name} style={{ color: '#0073e6', textDecoration: 'none', fontWeight: '600' }}>
-					Downloaden
+				<a href={url} download={file_name} className="av-download-link">
+					<now-button label="Downloaden" variant="primary" size="md" icon="download-outline" />
 				</a>
 			</div>
 		</div>
@@ -377,13 +460,87 @@ const view = (state, { dispatch }) => {
 	if (!attachments.length) {
 		return (
 			<div className="av-empty">
-				<p>No attachments</p>
+				<div className="av-empty-card">
+					<h2 className="av-empty-title">No attachments</h2>
+					<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
+						<now-button
+							label="Upload"
+							variant="primary"
+							size="md"
+							icon="upload-outline"
+						/>
+					</span>
+				</div>
 			</div>
 		);
 	}
 
+	const dragging = state.dragging || false;
+	const uploading = state.uploading || false;
+	const uploadError = state.uploadError || null;
+	const confirmDelete = state.confirmDelete || null;
+
 	return (
 		<div className="av-root">
+			{/* Delete confirmation overlay */}
+			{confirmDelete && (
+				<div className="av-drop-overlay" style={{ pointerEvents: 'auto' }}>
+					<div className="av-confirm-card">
+						<now-icon icon="trash-outline" size="lg" />
+						<p>Weet je zeker dat je <strong>{confirmDelete.file_name}</strong> wilt verwijderen?</p>
+						<div className="av-confirm-actions">
+							<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'DELETE_ATTACHMENT', payload: { sys_id: confirmDelete.sys_id } }))}>
+								<now-button label="Verwijderen" variant="primary-negative" size="md" />
+							</span>
+							<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'DISMISS_DELETE' }))}>
+								<now-button label="Annuleren" variant="secondary" size="md" />
+							</span>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* Upload error overlay */}
+			{uploadError && (
+				<div className="av-drop-overlay" style={{ pointerEvents: 'auto' }}
+					onclick={() => dispatch(() => ({ type: 'DISMISS_ERROR' }))}
+				>
+					<div className="av-upload-card -error">
+						<now-icon icon="circle-exclamation-outline" size="lg" />
+						<p>{uploadError}</p>
+						<now-button label="Sluiten" variant="secondary" size="sm" />
+					</div>
+				</div>
+			)}
+
+			{/* Drag overlay */}
+			{dragging && (
+				<div className="av-drop-overlay">
+					<div className="av-drop-message">
+						<now-icon icon="upload-outline" size="lg" />
+						<p>Drop bestanden om te uploaden</p>
+					</div>
+				</div>
+			)}
+
+			{/* Upload progress overlay */}
+			{uploading && (
+				<div className="av-drop-overlay">
+					<div className="av-upload-card">
+						<now-loader label="Uploading..." action="Cancel" />
+					</div>
+				</div>
+			)}
+
+			{/* Delete progress overlay */}
+			{state.deleting && (
+				<div className="av-drop-overlay">
+					<div className="av-upload-card">
+						<now-loader label="Verwijderen..." />
+					</div>
+				</div>
+			)}
+
 			{/* Sidebar */}
 			<div className="av-sidebar">
 				<ul className="av-list">
@@ -401,6 +558,19 @@ const view = (state, { dispatch }) => {
 						</li>
 					))}
 				</ul>
+				<div className="av-sidebar-actions">
+					<div className="av-upload-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
+						<now-button
+							label="Upload"
+							variant="secondary"
+							size="md"
+							icon="upload-outline"
+						/>
+					</div>
+					<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'FETCH_ATTACHMENTS' }))}>
+						<now-button-iconic icon="sync-outline" variant="tertiary" size="md" tooltipContent="Vernieuwen" />
+					</span>
+				</div>
 			</div>
 
 			{/* Main */}
@@ -418,6 +588,9 @@ const view = (state, { dispatch }) => {
 							<a href={downloadUrl(selected.sys_id)} download={selected.file_name} className="av-download-link">
 								<now-button-iconic icon="download-outline" variant="tertiary" size="md" tooltipContent="Download" />
 							</a>
+							<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'CONFIRM_DELETE', payload: { sys_id: selected.sys_id, file_name: selected.file_name } }))}>
+								<now-button-iconic icon="trash-outline" variant="tertiary" size="md" tooltipContent="Verwijderen" />
+							</span>
 						</div>
 					</div>
 				)}
@@ -432,11 +605,27 @@ const view = (state, { dispatch }) => {
 // ─── Action Handlers ──────────────────────────────────────────────────────────
 
 const actionHandlers = {
-	[COMPONENT_BOOTSTRAPPED]: ({ updateState, properties }) => {
+	[COMPONENT_BOOTSTRAPPED]: ({ host, dispatch, updateState, properties }) => {
 		console.log(`[AV] Attachment Viewer v${AV_VERSION} (${AV_BUILD})`);
 		if (properties.sysid) {
 			fetchAttachments(properties.table, properties.sysid, updateState);
 		}
+		// Bind drag & drop on host element
+		host.addEventListener('dragenter', (e) => {
+			e.preventDefault();
+			dispatch(() => ({ type: 'SET_DRAGGING', payload: true }));
+		});
+		host.addEventListener('dragover', (e) => { e.preventDefault(); });
+		host.addEventListener('dragleave', (e) => {
+			if (!host.contains(e.relatedTarget)) {
+				dispatch(() => ({ type: 'SET_DRAGGING', payload: false }));
+			}
+		});
+		host.addEventListener('drop', (e) => {
+			e.preventDefault();
+			dispatch(() => ({ type: 'SET_DRAGGING', payload: false }));
+			dispatch(() => ({ type: 'UPLOAD_FILES', payload: { files: e.dataTransfer.files } }));
+		});
 	},
 
 	[COMPONENT_PROPERTY_CHANGED]: ({ action, updateState, properties }) => {
@@ -457,12 +646,63 @@ const actionHandlers = {
 		if (attachment) fetchPreview(attachment, updateState);
 	},
 
-	'NOW_BUTTON#CLICKED': ({ updateState, properties }) => {
-		fetchAttachments(properties.table, properties.sysid, updateState);
+	'OPEN_FILE_PICKER': ({ updateState, properties }) => {
+		const input = document.createElement('input');
+		input.type = 'file';
+		input.multiple = true;
+		input.onchange = () => {
+			if (input.files.length) {
+				uploadFiles(input.files, properties.table, properties.sysid, updateState);
+			}
+		};
+		input.click();
+	},
+
+	'UPLOAD_FILES': ({ action, updateState, properties }) => {
+		uploadFiles(action.payload.files, properties.table, properties.sysid, updateState);
+	},
+
+	'SET_DRAGGING': ({ action, updateState }) => {
+		updateState({ dragging: action.payload });
 	},
 
 	'SET_ACTIVE_SHEET': ({ action, updateState }) => {
 		updateState({ activeSheet: action.payload.index });
+	},
+
+	'NOW_LOADER#ACTION_CLICKED': ({ updateState }) => {
+		updateState({ uploading: false });
+	},
+
+	'DISMISS_ERROR': ({ updateState }) => {
+		updateState({ uploadError: null });
+	},
+
+	'CONFIRM_DELETE': ({ action, updateState }) => {
+		updateState({ confirmDelete: action.payload });
+	},
+
+	'DISMISS_DELETE': ({ updateState }) => {
+		updateState({ confirmDelete: null });
+	},
+
+	'DELETE_ATTACHMENT': ({ action, updateState, properties }) => {
+		const { sys_id } = action.payload;
+		updateState({ confirmDelete: null, deleting: true });
+		fetch(`/api/now/attachment/${sys_id}`, {
+			method: 'DELETE',
+			credentials: 'same-origin',
+			headers: { Accept: 'application/json' }
+		})
+			.then(res => {
+				if (!res.ok) throw new Error('Verwijderen mislukt: ' + res.status);
+				updateState({ deleting: false });
+				fetchAttachments(properties.table, properties.sysid, updateState);
+			})
+			.catch(err => {
+				console.error('[AV] Delete error:', err);
+				updateState({ deleting: false, uploadError: err.message });
+			});
 	},
 
 };
