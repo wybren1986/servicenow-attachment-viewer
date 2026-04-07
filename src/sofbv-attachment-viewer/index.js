@@ -1,9 +1,17 @@
+const AV_VERSION = '1.0.0';
+const AV_BUILD = '2026-04-07';
+
 import { createCustomElement, actionTypes } from '@servicenow/ui-core';
 const { COMPONENT_BOOTSTRAPPED, COMPONENT_PROPERTY_CHANGED } = actionTypes;
 import snabbdom from '@servicenow/ui-renderer-snabbdom';
 import styles from './styles.scss';
 import '@servicenow/now-button';
 import '@servicenow/now-icon';
+import '@servicenow/now-loader';
+import mammoth from 'mammoth';
+import * as XLSX from 'xlsx';
+import MsgReaderDefault from 'msgreader/lib/MsgReader';
+const MsgReader = MsgReaderDefault.default || MsgReaderDefault;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -127,7 +135,7 @@ const fetchPreview = (attachment, updateState) => {
 	const cat = getCategory(file_type);
 	if (!PREVIEW_CATS.includes(cat)) return;
 
-	updateState({ blobUrl: null, previewText: null, previewHtml: null, previewPages: null, previewLoading: true });
+	updateState({ blobUrl: null, previewText: null, previewHtml: null, previewPages: null, previewSheets: null, activeSheet: 0, previewLoading: true });
 
 	if (cat === 'text') {
 		fetch(downloadUrl(sys_id), { credentials: 'same-origin' })
@@ -150,29 +158,69 @@ const fetchPreview = (attachment, updateState) => {
 		.then(res => res.arrayBuffer())
 		.then(buf => {
 			if (cat === 'word') {
-				const mammoth = require('mammoth');
 				return mammoth.convertToHtml({ arrayBuffer: buf }, {
-					styleMap: ["br[type='page'] => hr"]
+					styleMap: [
+						"br[type='page'] => hr",
+						"p[style-name='Title'] => h1.doc-title:fresh",
+						"p[style-name='Titel'] => h1.doc-title:fresh",
+						"p[style-name='Koptekst 1'] => h1:fresh",
+						"p[style-name='Kop 1'] => h1:fresh",
+						"p[style-name='Heading 1'] => h1:fresh",
+						"p[style-name='Ondertitel'] => h2.doc-subtitle:fresh",
+						"p[style-name='Subtitle'] => h2.doc-subtitle:fresh",
+						"r[style-name='Kop 1 Char'] => span.av-run-h1",
+						"r[style-name='Heading 1 Char'] => span.av-run-h1"
+					]
 				}).then(r => {
-					const pages = r.value.split(/<hr\s*\/?>/i).filter(p => p.trim());
+					let html = r.value;
+					// Strip av-run-h1 markers inside real headings
+					html = html.replace(/<(h[1-6][^>]*)><span class="av-run-h1">([\s\S]*?)<\/span>(\s*)<\/(h[1-6])>/gi, '<$1>$2$3</$4>');
+					// Promote av-run-h1 inside <p> to <h1>
+					html = html.replace(/<p>([\s\S]*?)<span class="av-run-h1">([\s\S]*?)<\/span>([\s\S]*?)<\/p>/gi, (match, before, heading, after) => {
+						const parts = [];
+						const trimBefore = before.replace(/<br\s*\/?>/g, '').trim();
+						if (trimBefore) parts.push('<p>' + before + '</p>');
+						parts.push('<h1>' + heading + '</h1>');
+						const trimAfter = after.replace(/<br\s*\/?>/g, '').trim();
+						if (trimAfter) parts.push('<p>' + after + '</p>');
+						return parts.join('');
+					});
+					const pages = html.split(/<hr\s*\/?>/i).filter(p => p.trim());
 					updateState({ previewPages: pages, previewLoading: false });
 				});
 			}
 			if (cat === 'excel') {
-				const XLSX = require('xlsx');
 				const wb = XLSX.read(buf, { type: 'array' });
-				const html = wb.SheetNames.map(name =>
-					`<h3 class="av-excel-tab">${name}</h3>${XLSX.utils.sheet_to_html(wb.Sheets[name])}`
-				).join('');
-				updateState({ previewHtml: html, previewLoading: false });
+				const sheets = wb.SheetNames.map(name => {
+					const ws = wb.Sheets[name];
+					const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+					let lastRow = 0, lastCol = 0;
+					data.forEach((row, r) => {
+						if (Array.isArray(row)) {
+							row.forEach((cell, c) => {
+								if (cell !== null && cell !== undefined && String(cell).trim() !== '') {
+									if (r + 1 > lastRow) lastRow = r + 1;
+									if (c + 1 > lastCol) lastCol = c + 1;
+								}
+							});
+						}
+					});
+					if (lastRow && lastCol) {
+						ws['!ref'] = 'A1:' + XLSX.utils.encode_cell({ r: lastRow - 1, c: lastCol - 1 });
+					}
+					return { name, html: XLSX.utils.sheet_to_html(ws) };
+				});
+				updateState({ previewSheets: sheets, activeSheet: 0, previewLoading: false });
 			}
 			if (cat === 'msg') {
-				const MsgReader = require('msgreader').default || require('msgreader');
 				const html = buildMsgHtml(MsgReader, buf);
 				updateState({ previewHtml: html, previewLoading: false });
 			}
 		})
-		.catch(() => updateState({ previewLoading: false }));
+		.catch(err => {
+			console.error('[AV] Preview error:', err);
+			updateState({ previewLoading: false });
+		});
 };
 
 // ─── Fetch attachments ────────────────────────────────────────────────────────
@@ -195,7 +243,7 @@ const fetchAttachments = (table, sysid, updateState) => {
 				sys_created_on: item.sys_created_on
 			}));
 			const first = attachments.length ? attachments[0] : null;
-			updateState({ attachments, selectedId: first ? first.sys_id : null, loading: false, blobUrl: null, previewText: null, previewHtml: null, previewPages: null });
+			updateState({ attachments, selectedId: first ? first.sys_id : null, loading: false, blobUrl: null, previewText: null, previewHtml: null, previewPages: null, previewSheets: null, activeSheet: 0 });
 			if (first) fetchPreview(first, updateState);
 		})
 		.catch(() => updateState({ loading: false }));
@@ -203,7 +251,7 @@ const fetchAttachments = (table, sysid, updateState) => {
 
 // ─── Preview ─────────────────────────────────────────────────────────────────
 
-const renderPreview = (attachment, state) => {
+const renderPreview = (attachment, state, dispatch) => {
 	if (!attachment) {
 		return (
 			<div className="av-preview-state">
@@ -215,7 +263,8 @@ const renderPreview = (attachment, state) => {
 	const { sys_id, file_name, file_type } = attachment;
 	const cat = getCategory(file_type);
 	const url = downloadUrl(sys_id);
-	const { blobUrl, previewText, previewHtml, previewPages, previewLoading } = state;
+	const { blobUrl, previewText, previewHtml, previewPages, previewSheets, previewLoading } = state;
+	const activeSheet = state.activeSheet || 0;
 
 	// Loading spinner (PDF / DOCX / XLSX / MSG)
 	if (previewLoading && PREVIEW_CATS.includes(cat)) {
@@ -255,10 +304,26 @@ const renderPreview = (attachment, state) => {
 		);
 	}
 
-	// XLSX — full width
-	if (cat === 'excel' && previewHtml) {
+	// XLSX — tabs + table
+	if (cat === 'excel' && previewSheets && previewSheets.length) {
+		const sheet = previewSheets[activeSheet];
 		return (
-			<div key={'excel-' + sys_id} className="av-preview -excel" hook-insert={(vnode) => { vnode.elm.innerHTML = previewHtml; }} />
+			<div key={'excel-' + sys_id} className="av-preview -excel">
+				{previewSheets.length > 1 && (
+					<div className="av-excel-tabs">
+						{previewSheets.map((s, i) => (
+							<button
+								key={i}
+								className={'av-excel-tab-btn' + (i === activeSheet ? ' -active' : '')}
+								onclick={() => dispatch(() => ({ type: 'SET_ACTIVE_SHEET', payload: { index: i } }))}
+							>
+								{s.name}
+							</button>
+						))}
+					</div>
+				)}
+				<div className="av-excel-sheet" hook-insert={(vnode) => { vnode.elm.innerHTML = sheet.html; }} hook-update={(o, vnode) => { vnode.elm.innerHTML = sheet.html; }} />
+			</div>
 		);
 	}
 
@@ -300,14 +365,11 @@ const view = (state, { dispatch }) => {
 	const selectedId  = state.selectedId || null;
 	const loading     = state.loading || false;
 	const selected    = attachments.find(a => a.sys_id === selectedId) || null;
-	const sysid       = state.properties.sysid;
-	const table       = state.properties.table;
 
 	if (loading) {
 		return (
 			<div className="av-empty">
-				<div className="av-spinner" />
-				<p>Bijlagen laden...</p>
+				<now-loader label="Loading" />
 			</div>
 		);
 	}
@@ -315,18 +377,7 @@ const view = (state, { dispatch }) => {
 	if (!attachments.length) {
 		return (
 			<div className="av-empty">
-				<p style={{ color: '#718096' }}>
-					{sysid ? 'Geen bijlagen gevonden' : 'Geen record geselecteerd'}
-				</p>
-				<p style={{ fontSize: '11px', color: '#a0aec0', fontFamily: 'monospace' }}>
-					table: {table || '(leeg)'} | sysid: {sysid || '(leeg)'}
-				</p>
-				<now-button
-						label="Haal attachments op"
-						variant="secondary"
-						size="md"
-						icon="arrow-down-fill"
-					/>
+				<p>No attachments</p>
 			</div>
 		);
 	}
@@ -371,7 +422,7 @@ const view = (state, { dispatch }) => {
 					</div>
 				)}
 				<div className="av-content">
-					{renderPreview(selected, state)}
+					{renderPreview(selected, state, dispatch)}
 				</div>
 			</div>
 		</div>
@@ -382,6 +433,7 @@ const view = (state, { dispatch }) => {
 
 const actionHandlers = {
 	[COMPONENT_BOOTSTRAPPED]: ({ updateState, properties }) => {
+		console.log(`[AV] Attachment Viewer v${AV_VERSION} (${AV_BUILD})`);
 		if (properties.sysid) {
 			fetchAttachments(properties.table, properties.sysid, updateState);
 		}
@@ -400,13 +452,17 @@ const actionHandlers = {
 
 	'SELECT_ATTACHMENT': ({ action, updateState, state }) => {
 		const sys_id = action.payload.sys_id;
-		updateState({ selectedId: sys_id, blobUrl: null, previewText: null, previewHtml: null, previewPages: null });
+		updateState({ selectedId: sys_id, blobUrl: null, previewText: null, previewHtml: null, previewPages: null, previewSheets: null, activeSheet: 0 });
 		const attachment = (state.attachments || []).find(a => a.sys_id === sys_id);
 		if (attachment) fetchPreview(attachment, updateState);
 	},
 
 	'NOW_BUTTON#CLICKED': ({ updateState, properties }) => {
 		fetchAttachments(properties.table, properties.sysid, updateState);
+	},
+
+	'SET_ACTIVE_SHEET': ({ action, updateState }) => {
+		updateState({ activeSheet: action.payload.index });
 	},
 
 };

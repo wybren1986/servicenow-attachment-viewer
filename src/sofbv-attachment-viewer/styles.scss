@@ -3,6 +3,8 @@
 :host {
 	display: block;
 	height: 100%;
+	max-height: 100vh;
+	overflow: hidden;
 }
 
 body {
@@ -15,7 +17,8 @@ body {
 	display: grid;
 	grid-template-columns: 320px 1fr;
 	height: 100vh;
-	background-color: $now-color--neutral-2;
+	max-height: 100vh;
+	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 	overflow: hidden;
 }
 
@@ -28,7 +31,7 @@ body {
 	justify-content: center;
 	height: 100vh;
 	gap: $now-global-space--md;
-	color: $now-color--neutral-18;
+	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 	font-size: 1rem;
 }
 
@@ -46,7 +49,7 @@ body {
 .av-spinner {
 	width: 32px;
 	height: 32px;
-	border: 3px solid $now-color--neutral-5;
+	border: 3px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
 	border-top-color: #0073e6;
 	border-radius: 50%;
 	animation: av-spin 0.8s linear infinite;
@@ -59,8 +62,8 @@ body {
 // ─── SIDEBAR ─────────────────────────────────────────────────────────────────
 
 .av-sidebar {
-	background-color: $now-color--neutral-0;
-	border-right: 1px solid var(--now-color--neutral-5, gray);
+	background-color: rgb(var(--now-color--neutral-0, 255, 255, 255));
+	border-right: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
 	overflow-y: auto;
 	padding: $now-global-space--sm;
 }
@@ -87,7 +90,7 @@ body {
 	transition: background-color 0.1s ease;
 
 	&:hover {
-		background-color: $now-color--neutral-2;
+		background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 	}
 
 	&.-active,
@@ -108,12 +111,12 @@ body {
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	color: $now-color--neutral-18;
+	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 }
 
 .av-list-item-meta {
 	font-size: 0.75rem;
-	color: $now-color--neutral-8;
+	color: rgb(var(--now-color--neutral-8, 139, 141, 150));
 	margin-top: $now-global-space--xxs;
 }
 
@@ -158,8 +161,8 @@ body {
 	align-items: center;
 	justify-content: space-between;
 	padding: 0 $now-global-space--xl;
-	background-color: $now-color--neutral-0;
-	border-bottom: 1px solid var(--now-color--neutral-5, gray);
+	background-color: rgb(var(--now-color--neutral-0, 255, 255, 255));
+	border-bottom: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
 }
 
 .av-header-title {
@@ -173,12 +176,12 @@ body {
 	font-size: 1rem;
 	font-weight: 600;
 	word-break: break-word;
-	color: $now-color--neutral-18;
+	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 }
 
 .av-header-meta {
 	font-size: 0.75rem;
-	color: $now-color--neutral-12;
+	color: rgb(var(--now-color--neutral-12, 88, 90, 99));
 	margin-top: 2px;
 }
 
@@ -195,7 +198,7 @@ body {
 	display: flex;
 	align-items: center;
 	gap: $now-global-space--xs;
-	border-right: 1px solid $now-color--neutral-5;
+	border-right: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
 	padding-right: $now-global-space--md;
 	margin-right: $now-global-space--xs;
 }
@@ -204,7 +207,7 @@ body {
 	font-size: 0.8rem;
 	min-width: 36px;
 	text-align: center;
-	color: $now-color--neutral-18;
+	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 }
 
 // ─── ICON BUTTON ─────────────────────────────────────────────────────────────
@@ -218,12 +221,12 @@ body {
 	border-radius: 6px;
 	padding: $now-global-space--xs;
 	cursor: pointer;
-	color: $now-color--neutral-18;
+	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 	transition: background-color 0.1s ease;
 
 	&:hover {
-		background-color: $now-color--neutral-2;
-		border-color: $now-color--neutral-5;
+		background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
+		border-color: rgb(var(--now-color--neutral-5, 214, 214, 216));
 	}
 
 	&:disabled {
@@ -249,14 +252,14 @@ body {
 
 .av-content {
 	overflow-y: auto;
-	background-color: var(--now-color--neutral-2, lightgray);
+	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 	padding: $now-global-space--xl $now-global-space--lg;
 	display: flex;
 	justify-content: center;
 	align-items: flex-start;
 
 	&:has(.av-preview.-pdf) {
-		padding: 0;
+		padding: $now-global-space--sm;
 		overflow: hidden;
 	}
 
@@ -266,6 +269,7 @@ body {
 
 	&:has(.av-preview.-excel) {
 		padding: $now-global-space--sm;
+		overflow: hidden;
 	}
 }
 
@@ -278,13 +282,13 @@ body {
 	justify-content: center;
 	gap: $now-global-space--md;
 	padding: 80px 40px;
-	color: $now-color--neutral-12;
+	color: rgb(var(--now-color--neutral-12, 88, 90, 99));
 }
 
 // ─── PREVIEW CONTAINERS ──────────────────────────────────────────────────────
 
 .av-preview {
-	background-color: var(--now-color--neutral-0, white);
+	background-color: rgb(var(--now-color--neutral-0, 255, 255, 255));
 	border-radius: 8px;
 	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 	overflow: hidden;
@@ -314,13 +318,15 @@ body {
 		gap: 24px;
 	}
 
-	// Excel — full width
+	// Excel — full width, fit in viewport
 	&.-excel {
 		width: 100%;
-		background-color: var(--now-color--neutral-0, white);
-		padding: 16px;
+		height: 100%;
+		background-color: rgb(var(--now-color--neutral-0, 255, 255, 255));
 		box-sizing: border-box;
-		overflow-x: auto;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
 
 		table {
 			border-collapse: collapse;
@@ -329,13 +335,13 @@ body {
 		}
 
 		td, th {
-			border: 1px solid #e2e8f0;
+			border: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
 			padding: 6px 10px;
 			font-size: 13px;
 		}
 
 		th {
-			background: #f7fafc;
+			background: rgb(var(--now-color--neutral-2, 244, 245, 247));
 			font-weight: 600;
 		}
 	}
@@ -386,6 +392,13 @@ body {
 	line-height: 1.6;
 	color: #2d3748;
 
+	h1 { font-size: 24px; font-weight: 700; margin: 24px 0 12px; color: #1a202c; }
+	h2 { font-size: 20px; font-weight: 600; margin: 20px 0 10px; color: #2d3748; }
+	h3 { font-size: 16px; font-weight: 600; margin: 16px 0 8px; color: #2d3748; }
+	h4 { font-size: 14px; font-weight: 600; margin: 14px 0 6px; color: #4a5568; }
+	h1.doc-title { font-size: 28px; margin-top: 0; }
+	h2.doc-subtitle { font-size: 18px; font-weight: 400; font-style: italic; color: #718096; }
+
 	table {
 		border-collapse: collapse;
 		width: 100%;
@@ -417,8 +430,8 @@ body {
 // ─── MSG EMAIL ──────────────────────────────────────────────────────────────
 
 .av-msg-header {
-	background: #f7fafc;
-	border: 1px solid #e2e8f0;
+	background: rgb(var(--now-color--neutral-2, 244, 245, 247));
+	border: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
 	border-radius: 8px;
 	padding: 16px;
 	margin-bottom: 20px;
@@ -436,12 +449,43 @@ body {
 	}
 }
 
-// ─── EXCEL TAB HEADERS ──────────────────────────────────────────────────────
+// ─── EXCEL TABS ─────────────────────────────────────────────────────────────
 
-.av-excel-tab {
-	margin: 16px 0 8px;
+.av-excel-tabs {
+	display: flex;
+	gap: 0;
+	border-bottom: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
+	flex-shrink: 0;
+	overflow-x: auto;
+}
+
+.av-excel-tab-btn {
+	padding: 8px 16px;
+	border: none;
+	background: transparent;
 	font-size: 13px;
-	color: #718096;
+	font-weight: 500;
+	color: rgb(var(--now-color--neutral-12, 88, 90, 99));
+	cursor: pointer;
+	border-bottom: 2px solid transparent;
+	white-space: nowrap;
+
+	&:hover {
+		background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
+		color: rgb(var(--now-color--neutral-18, 29, 29, 29));
+	}
+
+	&.-active {
+		color: #0073e6;
+		border-bottom-color: #0073e6;
+		font-weight: 600;
+	}
+}
+
+.av-excel-sheet {
+	flex: 1;
+	overflow: auto;
+	min-height: 0;
 }
 
 // ─── IMAGE ───────────────────────────────────────────────────────────────────
@@ -467,7 +511,7 @@ body {
 	}
 
 	td, th {
-		border: 1px solid $now-color--neutral-5;
+		border: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
 		padding: 6px 10px;
 		white-space: nowrap;
 		max-width: 280px;
@@ -477,7 +521,7 @@ body {
 	}
 
 	th {
-		background-color: $now-color--neutral-2;
+		background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 		font-weight: 600;
 		position: sticky;
 		top: 0;
@@ -485,11 +529,11 @@ body {
 	}
 
 	tr:nth-child(even) td {
-		background-color: $now-color--neutral-1;
+		background-color: rgb(var(--now-color--neutral-1, 248, 248, 249));
 	}
 
 	tr:hover td {
-		background-color: $now-color--neutral-3;
+		background-color: rgb(var(--now-color--neutral-3, 236, 237, 240));
 	}
 }
 
@@ -499,12 +543,12 @@ body {
 	font-family: 'Calibri', 'Arial', sans-serif;
 	font-size: 11pt;
 	line-height: 1.6;
-	color: $now-color--neutral-18;
+	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 
 	p { margin-bottom: $now-global-space--sm; }
 	h1, h2, h3, h4 { margin-top: $now-global-space--lg; margin-bottom: $now-global-space--sm; }
 	table { border-collapse: collapse; width: 100%; margin-bottom: $now-global-space--md; }
-	td, th { border: 1px solid $now-color--neutral-5; padding: 6px 8px; }
+	td, th { border: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216)); padding: 6px 8px; }
 }
 
 // ─── EMAIL / MSG ─────────────────────────────────────────────────────────────
@@ -514,7 +558,7 @@ body {
 }
 
 .av-email-headers {
-	background-color: $now-color--neutral-2;
+	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 	border-radius: 6px;
 	padding: $now-global-space--lg;
 	margin-bottom: $now-global-space--lg;
@@ -530,7 +574,7 @@ body {
 	label {
 		font-weight: 600;
 		min-width: 90px;
-		color: $now-color--neutral-14;
+		color: rgb(var(--now-color--neutral-14, 68, 70, 79));
 		font-size: 0.85rem;
 	}
 }
@@ -540,7 +584,7 @@ body {
 }
 
 .av-email-body {
-	border: 1px solid $now-color--neutral-5;
+	border: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
 	border-radius: 6px;
 	padding: $now-global-space--lg;
 	min-height: 160px;
@@ -555,12 +599,12 @@ body {
 .av-email-attachments {
 	margin-top: $now-global-space--lg;
 	padding-top: $now-global-space--lg;
-	border-top: 1px solid $now-color--neutral-5;
+	border-top: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
 
 	h4 {
 		font-size: 0.9rem;
 		margin-bottom: $now-global-space--sm;
-		color: $now-color--neutral-14;
+		color: rgb(var(--now-color--neutral-14, 68, 70, 79));
 	}
 
 	ul {
@@ -571,7 +615,7 @@ body {
 
 	li {
 		padding: $now-global-space--xs $now-global-space--sm;
-		background-color: $now-color--neutral-2;
+		background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 		border-radius: 4px;
 		margin-bottom: $now-global-space--xxs;
 		font-size: 0.85rem;
@@ -579,7 +623,7 @@ body {
 }
 
 .av-meta {
-	color: $now-color--neutral-12;
+	color: rgb(var(--now-color--neutral-12, 88, 90, 99));
 }
 
 // ─── TEXT FILE ───────────────────────────────────────────────────────────────
@@ -590,7 +634,7 @@ body {
 	line-height: 1.5;
 	white-space: pre-wrap;
 	word-break: break-all;
-	background-color: $now-color--neutral-2;
+	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 	padding: $now-global-space--lg;
 	border-radius: 8px;
 	margin: 0;
@@ -605,7 +649,7 @@ body {
 	line-height: 1.5;
 	white-space: pre-wrap;
 	word-wrap: break-word;
-	background-color: $now-color--neutral-2;
+	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 	padding: $now-global-space--lg;
 	border-radius: 6px;
 	max-height: calc(100vh - 220px);
@@ -631,12 +675,12 @@ body {
 	h3 {
 		margin: 0;
 		font-size: 1.1rem;
-		color: $now-color--neutral-18;
+		color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 	}
 
 	p {
 		margin: 0;
-		color: $now-color--neutral-12;
+		color: rgb(var(--now-color--neutral-12, 88, 90, 99));
 	}
 }
 
@@ -657,7 +701,7 @@ body {
 
 	.av-sidebar {
 		border-right: none;
-		border-bottom: 1px solid $now-color--neutral-5;
+		border-bottom: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
 	}
 
 	.av-header-filename {
