@@ -1,8 +1,18 @@
-import { createCustomElement, COMPONENT_BOOTSTRAPPED, COMPONENT_PROPERTY_CHANGED } from '@servicenow/ui-core';
+import { createCustomElement, actionTypes } from '@servicenow/ui-core';
+const { COMPONENT_BOOTSTRAPPED, COMPONENT_PROPERTY_CHANGED } = actionTypes;
 import snabbdom from '@servicenow/ui-renderer-snabbdom';
 import styles from './styles.scss';
+import '@servicenow/now-button';
+import '@servicenow/now-icon';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+const formatDate = (dateStr) => {
+	if (!dateStr) return '';
+	const d = new Date(dateStr.replace(' ', 'T'));
+	if (isNaN(d)) return '';
+	return d.toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
 
 const formatSize = (bytes) => {
 	if (!bytes) return '';
@@ -18,6 +28,7 @@ const getCategory = (ext) => {
 	if (ext === 'pdf')  return 'pdf';
 	if (ext === 'msg')  return 'msg';
 	if (['xls', 'xlsx'].includes(ext)) return 'excel';
+	if (['ppt', 'pptx'].includes(ext)) return 'ppt';
 	if (['doc', 'docx'].includes(ext)) return 'word';
 	if (IMAGE_TYPES.includes(ext))     return 'image';
 	if (TEXT_TYPES.includes(ext))      return 'text';
@@ -26,32 +37,32 @@ const getCategory = (ext) => {
 
 const fileIcon = (ext) => {
 	const cat = getCategory(ext);
-	const colors = { pdf: '#e53e3e', excel: '#38a169', word: '#3182ce', msg: '#d69e2e', image: '#805ad5', text: '#718096', unsupported: '#a0aec0' };
-	const labels = { pdf: 'PDF', excel: 'XLS', word: 'DOC', msg: 'MSG', image: 'IMG', text: 'TXT', unsupported: (ext || '???').toUpperCase().slice(0, 3) };
+	const icons = {
+		pdf: 'document-pdf-outline',
+		excel: 'document-excel-outline',
+		word: 'document-outline',
+		msg: 'envelope-outline',
+		image: 'document-image-outline',
+		text: 'document-code-outline',
+		ppt: 'document-powerpoint-outline',
+		unsupported: 'document-blank-outline'
+	};
+	const colors = {
+		pdf: '#e53e3e',
+		excel: '#38a169',
+		word: '#3182ce',
+		msg: '#d69e2e',
+		image: '#805ad5',
+		text: '#718096',
+		ppt: '#e05d2c',
+		unsupported: '#a0aec0'
+	};
+	const icon = icons[cat] || 'document-blank-outline';
 	const color = colors[cat] || '#a0aec0';
-	const label = labels[cat] || (ext || '').toUpperCase().slice(0, 3);
-	return (
-		<div style={{
-			width: '36px', height: '42px', borderRadius: '4px',
-			border: `1.5px solid ${color}`, background: color + '1a',
-			display: 'flex', alignItems: 'center', justifyContent: 'center',
-			flexShrink: '0', fontSize: '9px', fontWeight: '700',
-			color: color, fontFamily: 'sans-serif', letterSpacing: '0.5px'
-		}}>
-			{label}
-		</div>
-	);
+	return <now-icon icon={icon} size="lg" style={{ color }} />;
 };
 
 const downloadUrl = (sys_id) => `/api/now/attachment/${sys_id}/file`;
-
-const wrapHtml = (body) => `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.6; color: #2d3748; padding: 24px; margin: 0; }
-  table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
-  td, th { border: 1px solid #e2e8f0; padding: 6px 10px; }
-  th { background: #f7fafc; font-weight: 600; }
-  img { max-width: 100%; }
-</style></head><body>${body}</body></html>`;
 
 // ─── Preview fetching ────────────────────────────────────────────────────────
 
@@ -100,15 +111,15 @@ const buildMsgHtml = (MsgReader, buf) => {
 		? `<pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;margin:0;line-height:1.6">${d.body}</pre>`
 		: '<em style="color:#718096">Geen inhoud</em>';
 
-	return wrapHtml(`
-		<div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:20px;font-size:13px;line-height:1.8">
+	return `
+		<div class="av-msg-header">
 			<div><b>Van:</b> ${from}</div>
 			<div><b>Aan:</b> ${to}</div>
 			<div><b>Onderwerp:</b> ${d.subject || '—'}</div>
 		</div>
-		<div>${bodyHtml}</div>
+		<div class="av-msg-body">${bodyHtml}</div>
 		${attSection}
-	`);
+	`;
 };
 
 const fetchPreview = (attachment, updateState) => {
@@ -116,7 +127,7 @@ const fetchPreview = (attachment, updateState) => {
 	const cat = getCategory(file_type);
 	if (!PREVIEW_CATS.includes(cat)) return;
 
-	updateState({ blobUrl: null, previewText: null, previewLoading: true });
+	updateState({ blobUrl: null, previewText: null, previewHtml: null, previewPages: null, previewLoading: true });
 
 	if (cat === 'text') {
 		fetch(downloadUrl(sys_id), { credentials: 'same-origin' })
@@ -140,24 +151,26 @@ const fetchPreview = (attachment, updateState) => {
 		.then(buf => {
 			if (cat === 'word') {
 				const mammoth = require('mammoth');
-				return mammoth.convertToHtml({ arrayBuffer: buf }).then(r => wrapHtml(r.value));
+				return mammoth.convertToHtml({ arrayBuffer: buf }, {
+					styleMap: ["br[type='page'] => hr"]
+				}).then(r => {
+					const pages = r.value.split(/<hr\s*\/?>/i).filter(p => p.trim());
+					updateState({ previewPages: pages, previewLoading: false });
+				});
 			}
 			if (cat === 'excel') {
 				const XLSX = require('xlsx');
 				const wb = XLSX.read(buf, { type: 'array' });
-				const tabs = wb.SheetNames.map(name =>
-					`<h3 style="margin:16px 0 8px;font-size:13px;color:#718096">${name}</h3>${XLSX.utils.sheet_to_html(wb.Sheets[name])}`
+				const html = wb.SheetNames.map(name =>
+					`<h3 class="av-excel-tab">${name}</h3>${XLSX.utils.sheet_to_html(wb.Sheets[name])}`
 				).join('');
-				return Promise.resolve(wrapHtml(tabs));
+				updateState({ previewHtml: html, previewLoading: false });
 			}
 			if (cat === 'msg') {
 				const MsgReader = require('msgreader').default || require('msgreader');
-				return Promise.resolve(buildMsgHtml(MsgReader, buf));
+				const html = buildMsgHtml(MsgReader, buf);
+				updateState({ previewHtml: html, previewLoading: false });
 			}
-		})
-		.then(html => {
-			const blob = new Blob([html], { type: 'text/html' });
-			updateState({ blobUrl: URL.createObjectURL(blob), previewLoading: false });
 		})
 		.catch(() => updateState({ previewLoading: false }));
 };
@@ -178,10 +191,11 @@ const fetchAttachments = (table, sysid, updateState) => {
 				file_name: item.file_name,
 				size_bytes: item.size_bytes,
 				content_type: item.content_type,
-				file_type: (item.file_name || '').split('.').pop().toLowerCase()
+				file_type: (item.file_name || '').split('.').pop().toLowerCase(),
+				sys_created_on: item.sys_created_on
 			}));
 			const first = attachments.length ? attachments[0] : null;
-			updateState({ attachments, selectedId: first ? first.sys_id : null, loading: false, blobUrl: null, previewText: null });
+			updateState({ attachments, selectedId: first ? first.sys_id : null, loading: false, blobUrl: null, previewText: null, previewHtml: null, previewPages: null });
 			if (first) fetchPreview(first, updateState);
 		})
 		.catch(() => updateState({ loading: false }));
@@ -201,7 +215,7 @@ const renderPreview = (attachment, state) => {
 	const { sys_id, file_name, file_type } = attachment;
 	const cat = getCategory(file_type);
 	const url = downloadUrl(sys_id);
-	const { blobUrl, previewText, previewLoading } = state;
+	const { blobUrl, previewText, previewHtml, previewPages, previewLoading } = state;
 
 	// Loading spinner (PDF / DOCX / XLSX / MSG)
 	if (previewLoading && PREVIEW_CATS.includes(cat)) {
@@ -224,18 +238,34 @@ const renderPreview = (attachment, state) => {
 	// PDF — use <object> to avoid CSP frame-src restrictions on blob: URLs
 	if (cat === 'pdf' && blobUrl) {
 		return (
-			<div className="av-preview -iframe">
+			<div className="av-preview -pdf">
 				<object data={blobUrl} type="application/pdf" aria-label={file_name} />
 			</div>
 		);
 	}
 
-	// DOCX, XLSX, MSG — rendered in sandboxed iframe
-	if (['word', 'excel', 'msg'].includes(cat) && blobUrl) {
+	// DOCX — pages
+	if (cat === 'word' && previewPages) {
 		return (
-			<div className="av-preview -iframe">
-				<iframe src={blobUrl} title={file_name} sandbox="allow-same-origin" />
+			<div key={'docx-' + sys_id} className="av-preview -docx">
+				{previewPages.map((page, i) => (
+					<div key={i} className="av-docx-page" hook-insert={(vnode) => { vnode.elm.innerHTML = page; }} />
+				))}
 			</div>
+		);
+	}
+
+	// XLSX — full width
+	if (cat === 'excel' && previewHtml) {
+		return (
+			<div key={'excel-' + sys_id} className="av-preview -excel" hook-insert={(vnode) => { vnode.elm.innerHTML = previewHtml; }} />
+		);
+	}
+
+	// MSG — email
+	if (cat === 'msg' && previewHtml) {
+		return (
+			<div key={'msg-' + sys_id} className="av-preview -msg" hook-insert={(vnode) => { vnode.elm.innerHTML = previewHtml; }} />
 		);
 	}
 
@@ -291,9 +321,12 @@ const view = (state, { dispatch }) => {
 				<p style={{ fontSize: '11px', color: '#a0aec0', fontFamily: 'monospace' }}>
 					table: {table || '(leeg)'} | sysid: {sysid || '(leeg)'}
 				</p>
-				<button className="av-fetch-btn" onclick={() => dispatch(() => ({ type: 'FETCH_ATTACHMENTS' }))}>
-					Haal attachments op
-				</button>
+				<now-button
+						label="Haal attachments op"
+						variant="secondary"
+						size="md"
+						icon="arrow-down-fill"
+					/>
 			</div>
 		);
 	}
@@ -312,14 +345,11 @@ const view = (state, { dispatch }) => {
 							<div className="av-file-icon">{fileIcon(a.file_type)}</div>
 							<div className="av-list-item-info">
 								<div className="av-list-item-name">{a.file_name}</div>
-								<div className="av-list-item-meta">{formatSize(a.size_bytes)}</div>
+								<div className="av-list-item-meta">{formatSize(a.size_bytes)}{a.sys_created_on ? ' · ' + formatDate(a.sys_created_on) : ''}</div>
 							</div>
 						</li>
 					))}
 				</ul>
-				<button className="av-fetch-btn" onclick={() => dispatch(() => ({ type: 'FETCH_ATTACHMENTS' }))}>
-					Vernieuwen
-				</button>
 			</div>
 
 			{/* Main */}
@@ -334,12 +364,8 @@ const view = (state, { dispatch }) => {
 							</div>
 						</div>
 						<div className="av-header-actions">
-							<a
-								href={downloadUrl(selected.sys_id)}
-								download={selected.file_name}
-								style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 12px', borderRadius: '6px', background: '#0073e6', color: '#fff', textDecoration: 'none', fontSize: '0.85rem', fontWeight: '600' }}
-							>
-								Download
+							<a href={downloadUrl(selected.sys_id)} download={selected.file_name} className="av-download-link">
+								<now-button-iconic icon="download-outline" variant="tertiary" size="md" tooltipContent="Download" />
 							</a>
 						</div>
 					</div>
@@ -362,8 +388,9 @@ const actionHandlers = {
 	},
 
 	[COMPONENT_PROPERTY_CHANGED]: ({ action, updateState, properties }) => {
-		if (action.payload?.name === 'sysid' && action.payload?.value) {
-			fetchAttachments(properties.table, action.payload.value, updateState);
+		const { name } = action.payload || {};
+		if ((name === 'sysid' || name === 'table') && properties.sysid) {
+			fetchAttachments(properties.table, properties.sysid, updateState);
 		}
 	},
 
@@ -373,10 +400,15 @@ const actionHandlers = {
 
 	'SELECT_ATTACHMENT': ({ action, updateState, state }) => {
 		const sys_id = action.payload.sys_id;
-		updateState({ selectedId: sys_id, blobUrl: null, previewText: null });
+		updateState({ selectedId: sys_id, blobUrl: null, previewText: null, previewHtml: null, previewPages: null });
 		const attachment = (state.attachments || []).find(a => a.sys_id === sys_id);
 		if (attachment) fetchPreview(attachment, updateState);
-	}
+	},
+
+	'NOW_BUTTON#CLICKED': ({ updateState, properties }) => {
+		fetchAttachments(properties.table, properties.sysid, updateState);
+	},
+
 };
 
 // ─── Register ─────────────────────────────────────────────────────────────────

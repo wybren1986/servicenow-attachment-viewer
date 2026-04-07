@@ -14,6 +14,8 @@
   },
   "module": "src/index.js",
   "dependencies": {
+    "@servicenow/now-button": "^19.8.2-ecd",
+    "@servicenow/now-icon": "^19.8.2-ecd",
     "@servicenow/now-modal": "19.8.2-ecd",
     "@servicenow/sass-kit": "latest",
     "@servicenow/ui-core": "24.1.1",
