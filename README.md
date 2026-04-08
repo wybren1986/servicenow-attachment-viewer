@@ -15,7 +15,6 @@ All file rendering happens client-side in the browser — no server-side process
 - **Email (.msg)** — header (from/to/subject) with HTML body and inline images
 - **Images** — jpg, jpeg, png, gif, svg, webp, bmp
 - **Text** — txt, log, json, xml, csv, js, ts, html, css
-- **PowerPoint (.pptx)** — download only (no preview, ServiceNow sandbox limitation)
 
 ### File Management
 - **Upload** — via button or drag & drop with file size validation (24MB limit)
@@ -90,7 +89,6 @@ snc ui-component deploy --instance https://your-instance.service-now.com
 | PDF | `document-pdf-outline` | Red |
 | Excel | `document-excel-outline` | Green |
 | Word | `document-outline` | Blue |
-| PowerPoint | `document-powerpoint-outline` | Orange |
 | Email | `envelope-outline` | Gold |
 | Image | `document-image-outline` | Purple |
 | Text | `document-code-outline` | Gray |
