@@ -15,7 +15,7 @@ All file rendering happens client-side in the browser — no server-side process
 - **Email (.msg)** — header (from/to/subject) with HTML body and inline images
 - **Images** — jpg, jpeg, png, gif, svg, webp, bmp
 - **Text** — txt, log, json, xml, csv, js, ts, html, css
-- **PowerPoint (.pptx)** — file icon with download option
+- **PowerPoint (.pptx)** — download only (no preview, ServiceNow sandbox limitation)
 
 ### File Management
 - **Upload** — via button or drag & drop with file size validation (24MB limit)
