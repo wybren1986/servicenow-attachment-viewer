@@ -10,7 +10,7 @@
           "global.landing-page"
         ],
         "label": "Attachment Viewer",
-        "tileIcon": "./tile-icon/generic-tile-icon.svg",
+        "tileIcon": "./tile-icon/paperclip.svg",
         "description": "A component to view attachments in the browser.",
         "category": "primitives"
       },

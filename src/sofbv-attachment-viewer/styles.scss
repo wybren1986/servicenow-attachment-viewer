@@ -437,6 +437,8 @@ body {
 			background: rgb(var(--now-color--neutral-2, 244, 245, 247)) !important;
 
 			> section.av-docx-container {
+				--docx-minorHAnsi-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+				--docx-majorHAnsi-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
 				border: var(--now-card--border-width, var(--now-container--border-width, 1px)) solid RGB(var(--now-card--border-color, var(--now-container--border-color, var(--now-color_border--tertiary, var(--now-color--neutral-3, 236, 237, 240))))) !important;
 				border-radius: var(--now-card--border-radius, var(--now-container--border-radius, .25rem)) !important;
 				box-shadow: 0 .125rem .25rem 0 RGB(56, 56, 56, var(--now-opacity--less, .25)) !important;

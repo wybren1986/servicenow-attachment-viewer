@@ -461,6 +461,9 @@ const renderPreview = (attachment, state, dispatch) => {
 						inWrapper: true,
 						ignoreWidth: false,
 						ignoreHeight: false,
+						ignoreFonts: false,
+						renderFontTable: true,
+						useBase64URL: true,
 						renderHeaders: true,
 						renderFooters: true,
 						renderFootnotes: true
