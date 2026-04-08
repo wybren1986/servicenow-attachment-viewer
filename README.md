@@ -2,6 +2,8 @@
 
 A full-featured attachment viewer component for ServiceNow's Next Experience (UI Builder). Preview, upload, download, rename, and delete attachments directly from any record — with support for parent record attachments.
 
+![Attachment Viewer](docs/Example.png)
+
 ## Features
 
 ### File Preview
