@@ -32,7 +32,7 @@ body {
 	gap: $now-global-space--md;
 	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 	font-size: 1rem;
-	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
+	background-color: inherit;
 }
 
 .av-empty-card {

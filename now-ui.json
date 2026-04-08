@@ -27,7 +27,7 @@
           "label": "Record Sys ID",
           "fieldType": "string",
           "required": true,
-          "defaultValue": "d24d517d9737fe505e06b586f053af11"
+          "defaultValue": ""
         }
       ]
     }

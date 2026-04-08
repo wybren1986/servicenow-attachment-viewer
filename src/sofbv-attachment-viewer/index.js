@@ -5,6 +5,8 @@ import styles from './styles.scss';
 import '@servicenow/now-button';
 import '@servicenow/now-icon';
 import '@servicenow/now-loader';
+import '@servicenow/now-message';
+import '@servicenow/now-illustration';
 import { renderAsync } from 'docx-preview';
 import * as XLSX from 'xlsx';
 import MsgReaderDefault from 'msgreader/lib/MsgReader';
@@ -470,12 +472,18 @@ const view = (state, { dispatch }) => {
 	if (!attachments.length) {
 		return (
 			<div className="av-empty">
-				<div className="av-empty-card">
-					<h2 className="av-empty-title">No attachments</h2>
-					<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
-						<now-button label="Upload" variant="primary" size="md" icon="upload-outline" />
-					</span>
-				</div>
+				<now-message alignment="vertical-centered">
+					<now-illustration slot="media" illustration="add-attachment" size="auto" />
+					<div slot="message">
+						<h3 className="now-heading--md now-m-block--0">No attachments available</h3>
+						<p className="now-m-block-start--sm now-m-block-end--0 now-color_text--tertiary">Drag or select files to upload</p>
+					</div>
+					<div slot="actions">
+						<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
+							<now-button label="Select file" variant="primary" size="md" />
+						</span>
+					</div>
+				</now-message>
 			</div>
 		);
 	}
@@ -490,28 +498,40 @@ const view = (state, { dispatch }) => {
 			{confirmDelete && (
 				<div className="av-drop-overlay" style={{ pointerEvents: 'auto' }}>
 					<div className="av-confirm-card">
-						<now-icon icon="trash-outline" size="lg" />
-						<p>Weet je zeker dat je <strong>{confirmDelete.file_name}</strong> wilt verwijderen?</p>
-						<div className="av-confirm-actions">
-							<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'DELETE_ATTACHMENT', payload: { sys_id: confirmDelete.sys_id } }))}>
-								<now-button label="Verwijderen" variant="primary-negative" size="md" />
-							</span>
-							<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'DISMISS_DELETE' }))}>
-								<now-button label="Annuleren" variant="secondary" size="md" />
-							</span>
-						</div>
+						<now-message alignment="vertical-centered">
+							<now-icon slot="media" icon="trash-outline" size="lg" />
+							<div slot="message">
+								<h3 className="now-heading--md now-m-block--0">Bestand verwijderen</h3>
+								<p className="now-m-block-start--sm now-m-block-end--0">Weet je zeker dat je <strong>{confirmDelete.file_name}</strong> wilt verwijderen?</p>
+							</div>
+							<div slot="actions" className="av-confirm-actions">
+								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'DELETE_ATTACHMENT', payload: { sys_id: confirmDelete.sys_id } }))}>
+									<now-button label="Verwijderen" variant="primary-negative" size="md" />
+								</span>
+								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'DISMISS_DELETE' }))}>
+									<now-button label="Annuleren" variant="secondary" size="md" />
+								</span>
+							</div>
+						</now-message>
 					</div>
 				</div>
 			)}
 
 			{uploadError && (
-				<div className="av-drop-overlay" style={{ pointerEvents: 'auto' }}
-					onclick={() => dispatch(() => ({ type: 'DISMISS_ERROR' }))}
-				>
-					<div className="av-upload-card -error">
-						<now-icon icon="circle-exclamation-outline" size="lg" />
-						<p>{uploadError}</p>
-						<now-button label="Sluiten" variant="secondary" size="sm" />
+				<div className="av-drop-overlay" style={{ pointerEvents: 'auto' }}>
+					<div className="av-confirm-card">
+						<now-message alignment="vertical-centered">
+							<now-icon slot="media" icon="circle-exclamation-outline" size="lg" style={{ color: '#e53e3e' }} />
+							<div slot="message">
+								<h3 className="now-heading--md now-m-block--0">Upload mislukt</h3>
+								<p className="now-m-block-start--sm now-m-block-end--0">{uploadError}</p>
+							</div>
+							<div slot="actions">
+								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'DISMISS_ERROR' }))}>
+									<now-button label="Sluiten" variant="secondary" size="md" />
+								</span>
+							</div>
+						</now-message>
 					</div>
 				</div>
 			)}
@@ -559,7 +579,7 @@ const view = (state, { dispatch }) => {
 				</ul>
 				<div className="av-sidebar-actions">
 					<div className="av-upload-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
-						<now-button label="Upload" variant="secondary" size="md" icon="upload-outline" />
+						<now-button label="Upload" variant="primary" size="md" icon="upload-outline" />
 					</div>
 					<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'FETCH_ATTACHMENTS' }))}>
 						<now-button-iconic icon="sync-outline" variant="tertiary" size="md" tooltipContent="Vernieuwen" />
