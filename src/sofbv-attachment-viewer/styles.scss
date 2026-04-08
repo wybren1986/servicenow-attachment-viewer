@@ -218,6 +218,40 @@ body {
 	flex-shrink: 0;
 }
 
+// ─── RENAME INPUT ────────────────────────────────────────────────────────────
+
+.av-header-edit {
+	display: flex;
+	align-items: center;
+	gap: $now-global-space--sm;
+	flex: 1;
+	min-width: 0;
+}
+
+.av-rename-input {
+	flex: 1;
+	min-width: 0;
+	padding: $now-global-space--xs $now-global-space--sm;
+	border: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
+	border-radius: var(--now-container--border-radius, .25rem);
+	font-size: 1rem;
+	font-weight: 600;
+	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
+	outline: none;
+
+	&:focus {
+		border-color: #0073e6;
+		box-shadow: 0 0 0 2px rgba(0, 115, 230, 0.2);
+	}
+}
+
+.av-rename-ext {
+	font-size: 1rem;
+	font-weight: 600;
+	color: rgb(var(--now-color--neutral-8, 139, 141, 150));
+	flex-shrink: 0;
+}
+
 // ─── ZOOM CONTROLS ───────────────────────────────────────────────────────────
 
 .av-zoom-controls {

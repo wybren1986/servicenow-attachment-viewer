@@ -111,7 +111,7 @@ const buildMsgHtml = (MsgReader, buf, rawBuf) => {
 
 	const attSection = (imageHtml || fileListHtml) ? `
 		<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0">
-			<strong style="font-size:12px;color:#718096;text-transform:uppercase;letter-spacing:.5px">Bijlagen (${msgAttachments.length})</strong>
+			<strong style="font-size:12px;color:#718096;text-transform:uppercase;letter-spacing:.5px">Attachments (${msgAttachments.length})</strong>
 			${imageHtml ? `<div style="margin-top:12px">${imageHtml}</div>` : ''}
 			${fileListHtml ? `<ul style="list-style:none;padding:0;margin:8px 0 0">${fileListHtml}</ul>` : ''}
 		</div>` : '';
@@ -132,7 +132,7 @@ const buildMsgHtml = (MsgReader, buf, rawBuf) => {
 			bodyHtml = rawStr.substring(rawStr.indexOf('<body', htmlStart), htmlEnd + 7)
 				.replace(/<\/?body[^>]*>/gi, '');
 		} else {
-			bodyHtml = '<em style="color:#718096">Geen inhoud</em>';
+			bodyHtml = '<em style="color:#718096">No content</em>';
 		}
 	}
 
@@ -290,7 +290,7 @@ const uploadFiles = (files, table, sysid, updateState) => {
 	const tooLarge = fileList.filter(f => f.size > MAX_FILE_SIZE);
 	if (tooLarge.length) {
 		const names = tooLarge.map(f => `${f.name} (${formatSize(f.size)})`).join(', ');
-		updateState({ uploadError: `Bestand(en) te groot (max ${formatSize(MAX_FILE_SIZE)}): ${names}` });
+		updateState({ uploadError: `File(s) too large (max ${formatSize(MAX_FILE_SIZE)}): ${names}` });
 		return;
 	}
 
@@ -303,7 +303,7 @@ const uploadFiles = (files, table, sysid, updateState) => {
 			headers: { 'Content-Type': file.type || 'application/octet-stream' },
 			body: file
 		}).then(res => {
-			if (!res.ok) throw new Error(`Upload mislukt voor ${file.name}: ${res.status}`);
+			if (!res.ok) throw new Error(`Upload failed for ${file.name}: ${res.status}`);
 			return res;
 		});
 	});
@@ -320,7 +320,7 @@ const uploadFiles = (files, table, sysid, updateState) => {
 
 // ─── Fetch Attachments ──────────────────────────────────────────────────────
 
-const fetchAttachments = (table, sysid, updateState) => {
+const fetchAttachments = (table, sysid, updateState, keepSelectedId) => {
 	const query = `table_name=${table}^table_sys_id=${sysid}`;
 	const url = `/api/now/attachment?sysparm_query=${encodeURIComponent(query)}&sysparm_limit=200`;
 	updateState({ loading: true });
@@ -337,9 +337,10 @@ const fetchAttachments = (table, sysid, updateState) => {
 				file_type: (item.file_name || '').split('.').pop().toLowerCase(),
 				sys_created_on: item.sys_created_on
 			}));
-			const first = attachments.length ? attachments[0] : null;
-			updateState({ attachments, selectedId: first ? first.sys_id : null, loading: false, blobUrl: null, previewText: null, previewHtml: null, previewSheets: null, docxData: null, activeSheet: 0 });
-			if (first) fetchPreview(first, updateState);
+			const kept = keepSelectedId && attachments.find(a => a.sys_id === keepSelectedId);
+			const selected = kept || (attachments.length ? attachments[0] : null);
+			updateState({ attachments, selectedId: selected ? selected.sys_id : null, loading: false, blobUrl: null, previewText: null, previewHtml: null, previewSheets: null, docxData: null, activeSheet: 0 });
+			if (selected) fetchPreview(selected, updateState);
 		})
 		.catch(() => updateState({ loading: false }));
 };
@@ -501,15 +502,15 @@ const view = (state, { dispatch }) => {
 						<now-message alignment="vertical-centered">
 							<now-icon slot="media" icon="trash-outline" size="lg" />
 							<div slot="message">
-								<h3 className="now-heading--md now-m-block--0">Bestand verwijderen</h3>
-								<p className="now-m-block-start--sm now-m-block-end--0">Weet je zeker dat je <strong>{confirmDelete.file_name}</strong> wilt verwijderen?</p>
+								<h3 className="now-heading--md now-m-block--0">Delete file</h3>
+								<p className="now-m-block-start--sm now-m-block-end--0">Are you sure you want to delete <strong>{confirmDelete.file_name}</strong>?</p>
 							</div>
 							<div slot="actions" className="av-confirm-actions">
 								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'DELETE_ATTACHMENT', payload: { sys_id: confirmDelete.sys_id } }))}>
-									<now-button label="Verwijderen" variant="primary-negative" size="md" />
+									<now-button label="Delete" variant="primary-negative" size="md" />
 								</span>
 								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'DISMISS_DELETE' }))}>
-									<now-button label="Annuleren" variant="secondary" size="md" />
+									<now-button label="Cancel" variant="secondary" size="md" />
 								</span>
 							</div>
 						</now-message>
@@ -523,12 +524,12 @@ const view = (state, { dispatch }) => {
 						<now-message alignment="vertical-centered">
 							<now-icon slot="media" icon="circle-exclamation-outline" size="lg" style={{ color: '#e53e3e' }} />
 							<div slot="message">
-								<h3 className="now-heading--md now-m-block--0">Upload mislukt</h3>
+								<h3 className="now-heading--md now-m-block--0">Upload failed</h3>
 								<p className="now-m-block-start--sm now-m-block-end--0">{uploadError}</p>
 							</div>
 							<div slot="actions">
 								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'DISMISS_ERROR' }))}>
-									<now-button label="Sluiten" variant="secondary" size="md" />
+									<now-button label="Close" variant="secondary" size="md" />
 								</span>
 							</div>
 						</now-message>
@@ -540,7 +541,7 @@ const view = (state, { dispatch }) => {
 				<div className="av-drop-overlay">
 					<div className="av-drop-message">
 						<now-icon icon="upload-outline" size="lg" />
-						<p>Drop bestanden om te uploaden</p>
+						<p>Drop files to upload</p>
 					</div>
 				</div>
 			)}
@@ -556,7 +557,7 @@ const view = (state, { dispatch }) => {
 			{state.deleting && (
 				<div className="av-drop-overlay">
 					<div className="av-upload-card">
-						<now-loader label="Verwijderen..." />
+						<now-loader label="Deleting..." />
 					</div>
 				</div>
 			)}
@@ -582,7 +583,7 @@ const view = (state, { dispatch }) => {
 						<now-button label="Upload" variant="primary" size="md" icon="upload-outline" />
 					</div>
 					<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'FETCH_ATTACHMENTS' }))}>
-						<now-button-iconic icon="sync-outline" variant="tertiary" size="md" tooltipContent="Vernieuwen" />
+						<now-button-iconic icon="sync-outline" variant="tertiary" size="md" tooltipContent="Refresh" />
 					</span>
 				</div>
 			</div>
@@ -590,21 +591,55 @@ const view = (state, { dispatch }) => {
 			<div className="av-main">
 				{selected && (
 					<div className="av-header">
-						<div className="av-header-title">
-							<div className="av-file-icon">{fileIcon(selected.file_type)}</div>
-							<div>
-								<div className="av-header-filename">{selected.file_name}</div>
-								<div className="av-header-meta">{formatSize(selected.size_bytes)}</div>
+						{state.editingName ? (
+							<div className="av-header-edit">
+								<div className="av-file-icon">{fileIcon(selected.file_type)}</div>
+								<input
+									className="av-rename-input"
+									value={state.editingName}
+									hook-insert={(vnode) => {
+										const el = vnode.elm;
+										el.focus();
+										el.select();
+										el.addEventListener('input', () => {
+											dispatch(() => ({ type: 'SET_EDITING_NAME', payload: el.value }));
+										});
+										el.addEventListener('keydown', (e) => {
+											if (e.key === 'Enter') dispatch(() => ({ type: 'SAVE_RENAME' }));
+											if (e.key === 'Escape') dispatch(() => ({ type: 'CANCEL_RENAME' }));
+										});
+									}}
+								/>
+								<span className="av-rename-ext">{state.editingExt}</span>
+								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'SAVE_RENAME' }))}>
+									<now-button-iconic icon="check-outline" variant="primary" size="md" tooltipContent="Save" />
+								</span>
+								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'CANCEL_RENAME' }))}>
+									<now-button-iconic icon="ban-outline" variant="tertiary" size="md" tooltipContent="Cancel" />
+								</span>
 							</div>
-						</div>
-						<div className="av-header-actions">
-							<a href={downloadUrl(selected.sys_id)} download={selected.file_name} className="av-download-link">
-								<now-button-iconic icon="download-outline" variant="tertiary" size="md" tooltipContent="Download" />
-							</a>
-							<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'CONFIRM_DELETE', payload: { sys_id: selected.sys_id, file_name: selected.file_name } }))}>
-								<now-button-iconic icon="trash-outline" variant="tertiary" size="md" tooltipContent="Verwijderen" />
-							</span>
-						</div>
+						) : (
+							<div className="av-header-title">
+								<div className="av-file-icon">{fileIcon(selected.file_type)}</div>
+								<div>
+									<div className="av-header-filename">{selected.file_name}</div>
+									<div className="av-header-meta">{formatSize(selected.size_bytes)}</div>
+								</div>
+							</div>
+						)}
+						{!state.editingName && (
+							<div className="av-header-actions">
+								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'START_RENAME', payload: selected.file_name }))}>
+									<now-button-iconic icon="pencil-page-outline" variant="tertiary" size="md" tooltipContent="Rename" />
+								</span>
+								<a href={downloadUrl(selected.sys_id)} download={selected.file_name} className="av-download-link">
+									<now-button-iconic icon="download-outline" variant="tertiary" size="md" tooltipContent="Download" />
+								</a>
+								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'CONFIRM_DELETE', payload: { sys_id: selected.sys_id, file_name: selected.file_name } }))}>
+									<now-button-iconic icon="trash-outline" variant="tertiary" size="md" tooltipContent="Delete" />
+								</span>
+							</div>
+						)}
 					</div>
 				)}
 				<div className="av-content">
@@ -632,8 +667,10 @@ const actionHandlers = {
 		};
 		setTimeout(setHeight, 100);
 		window.addEventListener('resize', setHeight);
-		// Drag & drop
+		// Drag & drop (only for files, not text selection)
+		const hasFiles = (e) => e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.indexOf('Files') > -1;
 		host.addEventListener('dragenter', (e) => {
+			if (!hasFiles(e)) return;
 			e.preventDefault();
 			dispatch(() => ({ type: 'SET_DRAGGING', payload: true }));
 		});
@@ -684,6 +721,46 @@ const actionHandlers = {
 		uploadFiles(action.payload.files, properties.table, properties.sysid, updateState);
 	},
 
+	'START_RENAME': ({ action, updateState }) => {
+		const fileName = action.payload;
+		const lastDot = fileName.lastIndexOf('.');
+		const nameOnly = lastDot > 0 ? fileName.substring(0, lastDot) : fileName;
+		updateState({ editingName: nameOnly, editingExt: lastDot > 0 ? fileName.substring(lastDot) : '' });
+	},
+
+	'SET_EDITING_NAME': ({ action, updateState }) => {
+		updateState({ editingName: action.payload });
+	},
+
+	'CANCEL_RENAME': ({ updateState }) => {
+		updateState({ editingName: null, editingExt: null });
+	},
+
+	'SAVE_RENAME': ({ state, updateState, properties }) => {
+		const nameOnly = (state.editingName || '').trim();
+		const ext = state.editingExt || '';
+		const selected = (state.attachments || []).find(a => a.sys_id === state.selectedId);
+		const fullName = nameOnly + ext;
+		if (!nameOnly || !selected || fullName === selected.file_name) {
+			updateState({ editingName: null, editingExt: null });
+			return;
+		}
+		updateState({ editingName: null, editingExt: null });
+		fetch(`/api/now/table/sys_attachment/${selected.sys_id}`, {
+			method: 'PATCH',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+			body: JSON.stringify({ file_name: fullName })
+		})
+			.then(res => {
+				if (!res.ok) throw new Error('Rename failed: ' + res.status);
+				fetchAttachments(properties.table, properties.sysid, updateState, selected.sys_id);
+			})
+			.catch(err => {
+				updateState({ uploadError: err.message });
+			});
+	},
+
 	'SET_DRAGGING': ({ action, updateState }) => {
 		updateState({ dragging: action.payload });
 	},
@@ -717,7 +794,7 @@ const actionHandlers = {
 			headers: { Accept: 'application/json' }
 		})
 			.then(res => {
-				if (!res.ok) throw new Error('Verwijderen mislukt: ' + res.status);
+				if (!res.ok) throw new Error('Delete failed:' + res.status);
 				updateState({ deleting: false });
 				fetchAttachments(properties.table, properties.sysid, updateState);
 			})

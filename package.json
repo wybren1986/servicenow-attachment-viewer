@@ -17,6 +17,7 @@
     "@servicenow/now-button": "^19.8.2-ecd",
     "@servicenow/now-icon": "^19.8.2-ecd",
     "@servicenow/now-illustration": "^19.8.2-ecd",
+    "@servicenow/now-input": "^19.8.2-ecd",
     "@servicenow/now-loader": "^19.8.2-ecd",
     "@servicenow/now-message": "^19.8.2-ecd",
     "@servicenow/now-modal": "19.8.2-ecd",
