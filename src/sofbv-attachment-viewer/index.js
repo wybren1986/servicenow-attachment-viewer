@@ -473,6 +473,8 @@ const renderPreview = (attachment, state, dispatch) => {
 		);
 	}
 
+
+
 	if (cat === 'excel' && previewSheets && previewSheets.length) {
 		const sheet = previewSheets[activeSheet];
 		return (
