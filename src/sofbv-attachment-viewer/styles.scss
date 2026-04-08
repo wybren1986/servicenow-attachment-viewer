@@ -2,8 +2,7 @@
 
 :host {
 	display: block;
-	height: 100%;
-	max-height: 100vh;
+	height: inherit;
 	overflow: hidden;
 }
 
@@ -15,9 +14,8 @@ body {
 
 .av-root {
 	display: grid;
-	grid-template-columns: 320px 1fr;
-	height: 100vh;
-	max-height: 100vh;
+	grid-template-columns: 1fr 4fr;
+	height: 100%;
 	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 	overflow: hidden;
 	position: relative;
@@ -30,7 +28,7 @@ body {
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	height: 100vh;
+	height: 100%;
 	gap: $now-global-space--md;
 	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 	font-size: 1rem;
@@ -38,9 +36,10 @@ body {
 }
 
 .av-empty-card {
-	background: rgb(var(--now-color--neutral-0, 255, 255, 255));
-	border-radius: 12px;
-	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+	background: rgb(var(--now-container--color, var(--now-color--neutral-0, 255, 255, 255)));
+	border: var(--now-card--border-width, var(--now-container--border-width, 1px)) solid RGB(var(--now-card--border-color, var(--now-container--border-color, var(--now-color_border--tertiary, var(--now-color--neutral-3, 236, 237, 240)))));
+	border-radius: var(--now-card--border-radius, var(--now-container--border-radius, .25rem));
+	box-shadow: 0 .125rem .25rem 0 RGB(56, 56, 56, var(--now-opacity--less, .25));
 	padding: 48px 64px;
 	display: flex;
 	flex-direction: column;
@@ -86,17 +85,18 @@ body {
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
+	height: 100%;
 
 	.av-list {
 		flex: 1;
 		overflow-y: auto;
+		min-height: 0;
 		padding: $now-global-space--sm;
 	}
 }
 
 .av-list {
 	list-style: none !important;
-	padding: 0 !important;
 	margin: 0;
 }
 
@@ -290,7 +290,7 @@ body {
 	}
 
 	&:has(.av-preview.-docx) {
-		padding: 32px 0;
+		padding: 0;
 	}
 
 	&:has(.av-preview.-excel) {
@@ -314,9 +314,10 @@ body {
 // ─── PREVIEW CONTAINERS ──────────────────────────────────────────────────────
 
 .av-preview {
-	background-color: rgb(var(--now-color--neutral-0, 255, 255, 255));
-	border-radius: 8px;
-	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+	background: rgb(var(--now-container--color, var(--now-color--neutral-0, 255, 255, 255)));
+	border: var(--now-card--border-width, var(--now-container--border-width, 1px)) solid RGB(var(--now-card--border-color, var(--now-container--border-color, var(--now-color_border--tertiary, var(--now-color--neutral-3, 236, 237, 240)))));
+	border-radius: var(--now-card--border-radius, var(--now-container--border-radius, .25rem));
+	box-shadow: 0 .125rem .25rem 0 RGB(56, 56, 56, var(--now-opacity--less, .25));
 	overflow: hidden;
 
 	// PDF — iframe
@@ -332,16 +333,24 @@ body {
 		}
 	}
 
-	// DOCX — A4 pages
+	// DOCX — rendered by docx-preview
 	&.-docx {
 		width: 100%;
-		background: transparent;
+		height: 100%;
+		background: rgb(var(--now-color--neutral-2, 244, 245, 247)) !important;
 		box-shadow: none;
 		border-radius: 0;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 24px;
+		overflow: auto;
+
+		.av-docx-container-wrapper {
+			background: rgb(var(--now-color--neutral-2, 244, 245, 247)) !important;
+
+			> section.av-docx-container {
+				border: var(--now-card--border-width, var(--now-container--border-width, 1px)) solid RGB(var(--now-card--border-color, var(--now-container--border-color, var(--now-color_border--tertiary, var(--now-color--neutral-3, 236, 237, 240))))) !important;
+				border-radius: var(--now-card--border-radius, var(--now-container--border-radius, .25rem)) !important;
+				box-shadow: 0 .125rem .25rem 0 RGB(56, 56, 56, var(--now-opacity--less, .25)) !important;
+			}
+		}
 	}
 
 	// Excel — full width, fit in viewport
@@ -393,69 +402,12 @@ body {
 	&.-text {
 		width: min(900px, 95%);
 		padding: 0;
-		min-height: calc(100vh - 140px);
+		min-height: 0;
 	}
 
 	// Unsupported
 	&.-unsupported {
 		padding: 80px 40px;
-	}
-}
-
-// ─── DOCX PAGES ─────────────────────────────────────────────────────────────
-
-.av-docx-page {
-	background: #fff;
-	width: 210mm;
-	min-height: 297mm;
-	padding: 25mm 20mm;
-	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-	box-sizing: border-box;
-	overflow-wrap: break-word;
-	overflow: hidden;
-	flex-shrink: 0;
-	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-	font-size: 14px;
-	line-height: 1.6;
-	color: #2d3748;
-
-	h1 { font-size: 24px; font-weight: 700; margin: 24px 0 12px; color: #1a202c; }
-	h2 { font-size: 20px; font-weight: 600; margin: 20px 0 10px; color: #2d3748; }
-	h3 { font-size: 16px; font-weight: 600; margin: 16px 0 8px; color: #2d3748; }
-	h4 { font-size: 14px; font-weight: 600; margin: 14px 0 6px; color: #4a5568; }
-	h1.doc-title { font-size: 28px; margin-top: 0; }
-	h2.doc-subtitle { font-size: 18px; font-weight: 400; font-style: italic; color: #718096; }
-
-	table {
-		border-collapse: collapse;
-		width: 100%;
-		max-width: 100%;
-		table-layout: fixed;
-		margin-bottom: 16px;
-	}
-
-	td, th {
-		border: 1px solid #e2e8f0;
-		padding: 6px 10px;
-		overflow: hidden;
-		word-wrap: break-word;
-	}
-
-	th {
-		background: #f7fafc;
-		font-weight: 600;
-	}
-
-	img {
-		max-width: 100%;
-		height: auto;
-	}
-
-	@media (max-width: 900px) {
-		width: 100%;
-		height: auto;
-		min-height: auto;
-		padding: 16px;
 	}
 }
 
@@ -529,7 +481,7 @@ body {
 
 .av-preview-img {
 	max-width: 100%;
-	max-height: calc(100vh - 200px);
+	max-height: 100%;
 	object-fit: contain;
 	border-radius: 4px;
 	display: block;
@@ -539,7 +491,7 @@ body {
 
 .av-excel-container {
 	overflow: auto;
-	max-height: calc(100vh - 200px);
+	max-height: 100%;
 
 	table {
 		border-collapse: collapse;
@@ -676,7 +628,7 @@ body {
 	border-radius: 8px;
 	margin: 0;
 	width: 100%;
-	min-height: calc(100vh - 140px);
+	min-height: 0;
 	box-sizing: border-box;
 }
 
@@ -689,7 +641,7 @@ body {
 	background-color: rgb(var(--now-color--neutral-2, 244, 245, 247));
 	padding: $now-global-space--lg;
 	border-radius: 6px;
-	max-height: calc(100vh - 220px);
+	max-height: 100%;
 	overflow: auto;
 	margin: 0;
 }

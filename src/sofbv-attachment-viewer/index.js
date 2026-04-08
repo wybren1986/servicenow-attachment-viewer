@@ -1,6 +1,3 @@
-const AV_VERSION = '1.0.0';
-const AV_BUILD = '2026-04-07';
-
 import { createCustomElement, actionTypes } from '@servicenow/ui-core';
 const { COMPONENT_BOOTSTRAPPED, COMPONENT_PROPERTY_CHANGED } = actionTypes;
 import snabbdom from '@servicenow/ui-renderer-snabbdom';
@@ -8,10 +5,13 @@ import styles from './styles.scss';
 import '@servicenow/now-button';
 import '@servicenow/now-icon';
 import '@servicenow/now-loader';
-import mammoth from 'mammoth';
+import { renderAsync } from 'docx-preview';
 import * as XLSX from 'xlsx';
 import MsgReaderDefault from 'msgreader/lib/MsgReader';
 const MsgReader = MsgReaderDefault.default || MsgReaderDefault;
+
+const AV_VERSION = '2.0.0';
+const AV_BUILD = '2026-04-08';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -31,6 +31,7 @@ const formatSize = (bytes) => {
 
 const IMAGE_TYPES = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp'];
 const TEXT_TYPES  = ['txt', 'log', 'json', 'xml', 'csv', 'js', 'ts', 'html', 'css'];
+const MAX_FILE_SIZE = 24 * 1024 * 1024; // 24MB ServiceNow default limit
 
 const getCategory = (ext) => {
 	if (ext === 'pdf')  return 'pdf';
@@ -72,15 +73,13 @@ const fileIcon = (ext) => {
 
 const downloadUrl = (sys_id) => `/api/now/attachment/${sys_id}/file`;
 
-// ─── Preview fetching ────────────────────────────────────────────────────────
-
-const PREVIEW_CATS = ['pdf', 'word', 'excel', 'msg', 'text'];
+// ─── MSG Preview ────────────────────────────────────────────────────────────
 
 const buildMsgHtml = (MsgReader, buf, rawBuf) => {
 	const reader = new MsgReader(buf);
 	const d = reader.getFileData();
 	const from = d.senderName ? `${d.senderName} &lt;${d.senderEmail || ''}&gt;` : (d.senderEmail || '—');
-	const to   = (d.recipients || []).map(r => r.name || r.email || '').filter(Boolean).join('; ') || '—';
+	const to = (d.recipients || []).map(r => r.name || r.email || '').filter(Boolean).join('; ') || '—';
 
 	const msgAttachments = (d.attachments || []).map(att => {
 		try {
@@ -115,13 +114,10 @@ const buildMsgHtml = (MsgReader, buf, rawBuf) => {
 			${fileListHtml ? `<ul style="list-style:none;padding:0;margin:8px 0 0">${fileListHtml}</ul>` : ''}
 		</div>` : '';
 
-	// Try to extract HTML body from raw buffer if plaintext body is missing
 	let bodyHtml;
 	if (d.body) {
 		bodyHtml = `<pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;margin:0;line-height:1.6">${d.body}</pre>`;
 	} else {
-		// MsgReader doesn't parse HTML body (MAPI 0x1013), extract from raw buffer
-		// Try Windows-1252 first (common for Outlook), fallback to UTF-8
 		let rawStr;
 		try {
 			rawStr = new TextDecoder('windows-1252').decode(new Uint8Array(rawBuf));
@@ -149,12 +145,104 @@ const buildMsgHtml = (MsgReader, buf, rawBuf) => {
 	`;
 };
 
+// ─── Excel Preview ──────────────────────────────────────────────────────────
+
+const buildExcelSheets = (buf) => {
+	const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
+	const fonts = (wb.Styles && wb.Styles.Fonts) || [];
+	const fills = (wb.Styles && wb.Styles.Fills) || [];
+	const cellXf = (wb.Styles && wb.Styles.CellXf) || [];
+
+	// Build fill-to-font lookup
+	const fillFontMap = {};
+	cellXf.forEach(xf => {
+		const fillId = parseInt(xf.fillId);
+		const fontId = parseInt(xf.fontId);
+		if (!isNaN(fillId) && !isNaN(fontId) && fonts[fontId]) {
+			if (!fillFontMap[fillId]) fillFontMap[fillId] = {};
+			const fk = JSON.stringify(fonts[fontId]);
+			fillFontMap[fillId][fk] = (fillFontMap[fillId][fk] || 0) + 1;
+		}
+	});
+	const fillFont = {};
+	Object.keys(fillFontMap).forEach(fid => {
+		let best = null, bestCount = 0;
+		Object.entries(fillFontMap[fid]).forEach(([fk, count]) => {
+			if (count > bestCount) { best = JSON.parse(fk); bestCount = count; }
+		});
+		fillFont[fid] = best;
+	});
+
+	return wb.SheetNames.map(name => {
+		const ws = wb.Sheets[name];
+		const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+		let lastRow = 0, lastCol = 0;
+		data.forEach((row, r) => {
+			if (Array.isArray(row)) {
+				row.forEach((cell, c) => {
+					if (cell !== null && cell !== undefined && String(cell).trim() !== '') {
+						if (r + 1 > lastRow) lastRow = r + 1;
+						if (c + 1 > lastCol) lastCol = c + 1;
+					}
+				});
+			}
+		});
+		if (!lastRow || !lastCol) return { name, html: '<table></table>' };
+
+		const range = { s: { r: 0, c: 0 }, e: { r: lastRow - 1, c: lastCol - 1 } };
+		let html = '<table>';
+		for (let r = range.s.r; r <= range.e.r; r++) {
+			html += '<tr>';
+			for (let c = range.s.c; c <= range.e.c; c++) {
+				const cell = ws[XLSX.utils.encode_cell({ r, c })];
+				const val = cell ? (cell.w || String(cell.v || '')) : '';
+				let style = '';
+				if (cell && cell.s) {
+					const s = cell.s;
+					const fg = (s.fill && s.fill.fgColor) || s.fgColor;
+					if (fg && fg.rgb && fg.theme !== 0) {
+						style += 'background-color:#' + fg.rgb.slice(-6) + ';';
+					}
+					const matchFillIdx = fills.findIndex(f => {
+						const ffg = f.fgColor;
+						if (!ffg || !fg) return false;
+						if (ffg.rgb && fg.rgb) return ffg.rgb === fg.rgb;
+						return ffg.theme === fg.theme && ffg.tint === fg.tint;
+					});
+					const font = s.font || (matchFillIdx >= 0 && fillFont[matchFillIdx]) || null;
+					if (font) {
+						if (font.bold) style += 'font-weight:700;';
+						if (font.italic) style += 'font-style:italic;';
+						if (font.color && font.color.rgb) {
+							const rgb = font.color.rgb.slice(-6);
+							if (rgb !== '000000') style += 'color:#' + rgb + ';';
+						}
+						if (font.sz && font.sz !== 11) style += 'font-size:' + font.sz + 'pt;';
+					}
+					if (s.alignment) {
+						if (s.alignment.horizontal) style += 'text-align:' + s.alignment.horizontal + ';';
+						if (s.alignment.vertical) style += 'vertical-align:' + s.alignment.vertical + ';';
+					}
+				}
+				html += '<td' + (style ? ' style="' + style + '"' : '') + '>' + val + '</td>';
+			}
+			html += '</tr>';
+		}
+		html += '</table>';
+		return { name, html };
+	});
+};
+
+// ─── Fetch Preview ──────────────────────────────────────────────────────────
+
+const PREVIEW_CATS = ['pdf', 'word', 'excel', 'msg', 'text'];
+
 const fetchPreview = (attachment, updateState) => {
 	const { sys_id, file_type } = attachment;
 	const cat = getCategory(file_type);
 	if (!PREVIEW_CATS.includes(cat)) return;
 
-	updateState({ blobUrl: null, previewText: null, previewHtml: null, previewPages: null, previewSheets: null, activeSheet: 0, previewLoading: true });
+	updateState({ blobUrl: null, previewText: null, previewHtml: null, previewSheets: null, docxData: null, activeSheet: 0, previewLoading: true });
 
 	if (cat === 'text') {
 		fetch(downloadUrl(sys_id), { credentials: 'same-origin' })
@@ -172,63 +260,15 @@ const fetchPreview = (attachment, updateState) => {
 		return;
 	}
 
-	// DOCX / XLSX / MSG — fetch as ArrayBuffer then process
 	fetch(downloadUrl(sys_id), { credentials: 'same-origin' })
 		.then(res => res.arrayBuffer())
 		.then(buf => {
 			if (cat === 'word') {
-				return mammoth.convertToHtml({ arrayBuffer: buf }, {
-					styleMap: [
-						"br[type='page'] => hr",
-						"p[style-name='Title'] => h1.doc-title:fresh",
-						"p[style-name='Titel'] => h1.doc-title:fresh",
-						"p[style-name='Koptekst 1'] => h1:fresh",
-						"p[style-name='Kop 1'] => h1:fresh",
-						"p[style-name='Heading 1'] => h1:fresh",
-						"p[style-name='Ondertitel'] => h2.doc-subtitle:fresh",
-						"p[style-name='Subtitle'] => h2.doc-subtitle:fresh",
-						"r[style-name='Kop 1 Char'] => span.av-run-h1",
-						"r[style-name='Heading 1 Char'] => span.av-run-h1"
-					]
-				}).then(r => {
-					let html = r.value;
-					// Strip av-run-h1 markers inside real headings
-					html = html.replace(/<(h[1-6][^>]*)><span class="av-run-h1">([\s\S]*?)<\/span>(\s*)<\/(h[1-6])>/gi, '<$1>$2$3</$4>');
-					// Promote av-run-h1 inside <p> to <h1>
-					html = html.replace(/<p>([\s\S]*?)<span class="av-run-h1">([\s\S]*?)<\/span>([\s\S]*?)<\/p>/gi, (match, before, heading, after) => {
-						const parts = [];
-						const trimBefore = before.replace(/<br\s*\/?>/g, '').trim();
-						if (trimBefore) parts.push('<p>' + before + '</p>');
-						parts.push('<h1>' + heading + '</h1>');
-						const trimAfter = after.replace(/<br\s*\/?>/g, '').trim();
-						if (trimAfter) parts.push('<p>' + after + '</p>');
-						return parts.join('');
-					});
-					const pages = html.split(/<hr\s*\/?>/i).filter(p => p.trim());
-					updateState({ previewPages: pages, previewLoading: false });
-				});
+				updateState({ docxData: buf, previewLoading: false });
+				return;
 			}
 			if (cat === 'excel') {
-				const wb = XLSX.read(buf, { type: 'array' });
-				const sheets = wb.SheetNames.map(name => {
-					const ws = wb.Sheets[name];
-					const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
-					let lastRow = 0, lastCol = 0;
-					data.forEach((row, r) => {
-						if (Array.isArray(row)) {
-							row.forEach((cell, c) => {
-								if (cell !== null && cell !== undefined && String(cell).trim() !== '') {
-									if (r + 1 > lastRow) lastRow = r + 1;
-									if (c + 1 > lastCol) lastCol = c + 1;
-								}
-							});
-						}
-					});
-					if (lastRow && lastCol) {
-						ws['!ref'] = 'A1:' + XLSX.utils.encode_cell({ r: lastRow - 1, c: lastCol - 1 });
-					}
-					return { name, html: XLSX.utils.sheet_to_html(ws) };
-				});
+				const sheets = buildExcelSheets(buf);
 				updateState({ previewSheets: sheets, activeSheet: 0, previewLoading: false });
 			}
 			if (cat === 'msg') {
@@ -236,39 +276,10 @@ const fetchPreview = (attachment, updateState) => {
 				updateState({ previewHtml: html, previewLoading: false });
 			}
 		})
-		.catch(err => {
-			console.error('[AV] Preview error:', err);
-			updateState({ previewLoading: false });
-		});
+		.catch(() => updateState({ previewLoading: false }));
 };
 
-// ─── Upload attachments ──────────────────────────────────────────────────────
-
-const uploadFile = (file, table, sysid, updateState) => {
-	const url = `/api/now/attachment/file?table_name=${table}&table_sys_id=${sysid}&file_name=${encodeURIComponent(file.name)}`;
-	updateState({ uploading: true });
-
-	fetch(url, {
-		method: 'POST',
-		credentials: 'same-origin',
-		headers: { 'Content-Type': file.type || 'application/octet-stream' },
-		body: file
-	})
-		.then(res => {
-			if (!res.ok) throw new Error('Upload failed: ' + res.status);
-			return res.json();
-		})
-		.then(() => {
-			updateState({ uploading: false });
-			fetchAttachments(table, sysid, updateState);
-		})
-		.catch(err => {
-			console.error('[AV] Upload error:', err);
-			updateState({ uploading: false });
-		});
-};
-
-const MAX_FILE_SIZE = 24 * 1024 * 1024; // 24MB ServiceNow default limit
+// ─── Upload ─────────────────────────────────────────────────────────────────
 
 const uploadFiles = (files, table, sysid, updateState) => {
 	if (!files || !files.length || !sysid) return;
@@ -300,13 +311,12 @@ const uploadFiles = (files, table, sysid, updateState) => {
 			fetchAttachments(table, sysid, updateState);
 		})
 		.catch(err => {
-			console.error('[AV] Upload error:', err);
 			updateState({ uploading: false, uploadError: err.message });
 			fetchAttachments(table, sysid, updateState);
 		});
 };
 
-// ─── Fetch attachments ────────────────────────────────────────────────────────
+// ─── Fetch Attachments ──────────────────────────────────────────────────────
 
 const fetchAttachments = (table, sysid, updateState) => {
 	const query = `table_name=${table}^table_sys_id=${sysid}`;
@@ -326,13 +336,13 @@ const fetchAttachments = (table, sysid, updateState) => {
 				sys_created_on: item.sys_created_on
 			}));
 			const first = attachments.length ? attachments[0] : null;
-			updateState({ attachments, selectedId: first ? first.sys_id : null, loading: false, blobUrl: null, previewText: null, previewHtml: null, previewPages: null, previewSheets: null, activeSheet: 0 });
+			updateState({ attachments, selectedId: first ? first.sys_id : null, loading: false, blobUrl: null, previewText: null, previewHtml: null, previewSheets: null, docxData: null, activeSheet: 0 });
 			if (first) fetchPreview(first, updateState);
 		})
 		.catch(() => updateState({ loading: false }));
 };
 
-// ─── Preview ─────────────────────────────────────────────────────────────────
+// ─── Render Preview ─────────────────────────────────────────────────────────
 
 const renderPreview = (attachment, state, dispatch) => {
 	if (!attachment) {
@@ -346,15 +356,13 @@ const renderPreview = (attachment, state, dispatch) => {
 	const { sys_id, file_name, file_type } = attachment;
 	const cat = getCategory(file_type);
 	const url = downloadUrl(sys_id);
-	const { blobUrl, previewText, previewHtml, previewPages, previewSheets, previewLoading } = state;
+	const { blobUrl, previewText, previewHtml, previewSheets, previewLoading } = state;
 	const activeSheet = state.activeSheet || 0;
 
-	// Loading spinner (PDF / DOCX / XLSX / MSG)
 	if (previewLoading && PREVIEW_CATS.includes(cat)) {
 		return (
 			<div className="av-empty">
-				<div className="av-spinner" />
-				<p>Laden...</p>
+				<now-loader label="Loading" />
 			</div>
 		);
 	}
@@ -367,7 +375,6 @@ const renderPreview = (attachment, state, dispatch) => {
 		);
 	}
 
-	// PDF — use <object> to avoid CSP frame-src restrictions on blob: URLs
 	if (cat === 'pdf' && blobUrl) {
 		return (
 			<div className="av-preview -pdf">
@@ -376,18 +383,24 @@ const renderPreview = (attachment, state, dispatch) => {
 		);
 	}
 
-	// DOCX — pages
-	if (cat === 'word' && previewPages) {
+	if (cat === 'word' && state.docxData) {
 		return (
-			<div key={'docx-' + sys_id} className="av-preview -docx">
-				{previewPages.map((page, i) => (
-					<div key={i} className="av-docx-page" hook-insert={(vnode) => { vnode.elm.innerHTML = page; }} />
-				))}
-			</div>
+			<div key={'docx-' + sys_id} className="av-preview -docx"
+				hook-insert={(vnode) => {
+					renderAsync(state.docxData, vnode.elm, null, {
+						className: 'av-docx-container',
+						inWrapper: true,
+						ignoreWidth: false,
+						ignoreHeight: false,
+						renderHeaders: true,
+						renderFooters: true,
+						renderFootnotes: true
+					}).catch(() => {});
+				}}
+			/>
 		);
 	}
 
-	// XLSX — tabs + table
 	if (cat === 'excel' && previewSheets && previewSheets.length) {
 		const sheet = previewSheets[activeSheet];
 		return (
@@ -405,19 +418,17 @@ const renderPreview = (attachment, state, dispatch) => {
 						))}
 					</div>
 				)}
-				<div className="av-excel-sheet" hook-insert={(vnode) => { vnode.elm.innerHTML = sheet.html; }} hook-update={(o, vnode) => { vnode.elm.innerHTML = sheet.html; }} />
+				<div className="av-excel-sheet" hook-insert={(vnode) => { vnode.elm.innerHTML = sheet.html; }} hook-update={(_, vnode) => { vnode.elm.innerHTML = sheet.html; }} />
 			</div>
 		);
 	}
 
-	// MSG — email
 	if (cat === 'msg' && previewHtml) {
 		return (
 			<div key={'msg-' + sys_id} className="av-preview -msg" hook-insert={(vnode) => { vnode.elm.innerHTML = previewHtml; }} />
 		);
 	}
 
-	// Plain text
 	if (cat === 'text' && previewText !== null) {
 		return (
 			<div className="av-preview -text">
@@ -426,7 +437,6 @@ const renderPreview = (attachment, state, dispatch) => {
 		);
 	}
 
-	// Unsupported / failed to load
 	return (
 		<div className="av-preview -unsupported">
 			<div className="av-unsupported">
@@ -441,13 +451,13 @@ const renderPreview = (attachment, state, dispatch) => {
 	);
 };
 
-// ─── View ─────────────────────────────────────────────────────────────────────
+// ─── View ───────────────────────────────────────────────────────────────────
 
 const view = (state, { dispatch }) => {
 	const attachments = state.attachments || [];
-	const selectedId  = state.selectedId || null;
-	const loading     = state.loading || false;
-	const selected    = attachments.find(a => a.sys_id === selectedId) || null;
+	const selectedId = state.selectedId || null;
+	const loading = state.loading || false;
+	const selected = attachments.find(a => a.sys_id === selectedId) || null;
 
 	if (loading) {
 		return (
@@ -463,12 +473,7 @@ const view = (state, { dispatch }) => {
 				<div className="av-empty-card">
 					<h2 className="av-empty-title">No attachments</h2>
 					<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
-						<now-button
-							label="Upload"
-							variant="primary"
-							size="md"
-							icon="upload-outline"
-						/>
+						<now-button label="Upload" variant="primary" size="md" icon="upload-outline" />
 					</span>
 				</div>
 			</div>
@@ -482,7 +487,6 @@ const view = (state, { dispatch }) => {
 
 	return (
 		<div className="av-root">
-			{/* Delete confirmation overlay */}
 			{confirmDelete && (
 				<div className="av-drop-overlay" style={{ pointerEvents: 'auto' }}>
 					<div className="av-confirm-card">
@@ -500,7 +504,6 @@ const view = (state, { dispatch }) => {
 				</div>
 			)}
 
-			{/* Upload error overlay */}
 			{uploadError && (
 				<div className="av-drop-overlay" style={{ pointerEvents: 'auto' }}
 					onclick={() => dispatch(() => ({ type: 'DISMISS_ERROR' }))}
@@ -513,7 +516,6 @@ const view = (state, { dispatch }) => {
 				</div>
 			)}
 
-			{/* Drag overlay */}
 			{dragging && (
 				<div className="av-drop-overlay">
 					<div className="av-drop-message">
@@ -523,7 +525,6 @@ const view = (state, { dispatch }) => {
 				</div>
 			)}
 
-			{/* Upload progress overlay */}
 			{uploading && (
 				<div className="av-drop-overlay">
 					<div className="av-upload-card">
@@ -532,7 +533,6 @@ const view = (state, { dispatch }) => {
 				</div>
 			)}
 
-			{/* Delete progress overlay */}
 			{state.deleting && (
 				<div className="av-drop-overlay">
 					<div className="av-upload-card">
@@ -541,7 +541,6 @@ const view = (state, { dispatch }) => {
 				</div>
 			)}
 
-			{/* Sidebar */}
 			<div className="av-sidebar">
 				<ul className="av-list">
 					{attachments.map(a => (
@@ -560,12 +559,7 @@ const view = (state, { dispatch }) => {
 				</ul>
 				<div className="av-sidebar-actions">
 					<div className="av-upload-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
-						<now-button
-							label="Upload"
-							variant="secondary"
-							size="md"
-							icon="upload-outline"
-						/>
+						<now-button label="Upload" variant="secondary" size="md" icon="upload-outline" />
 					</div>
 					<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'FETCH_ATTACHMENTS' }))}>
 						<now-button-iconic icon="sync-outline" variant="tertiary" size="md" tooltipContent="Vernieuwen" />
@@ -573,7 +567,6 @@ const view = (state, { dispatch }) => {
 				</div>
 			</div>
 
-			{/* Main */}
 			<div className="av-main">
 				{selected && (
 					<div className="av-header">
@@ -602,15 +595,24 @@ const view = (state, { dispatch }) => {
 	);
 };
 
-// ─── Action Handlers ──────────────────────────────────────────────────────────
+// ─── Action Handlers ────────────────────────────────────────────────────────
 
 const actionHandlers = {
 	[COMPONENT_BOOTSTRAPPED]: ({ host, dispatch, updateState, properties }) => {
-		console.log(`[AV] Attachment Viewer v${AV_VERSION} (${AV_BUILD})`);
 		if (properties.sysid) {
 			fetchAttachments(properties.table, properties.sysid, updateState);
 		}
-		// Bind drag & drop on host element
+		// Auto-size height to available space
+		const setHeight = () => {
+			const rect = host.getBoundingClientRect();
+			const available = window.innerHeight - rect.top;
+			host.style.height = available + 'px';
+			host.style.maxHeight = available + 'px';
+			host.style.overflow = 'hidden';
+		};
+		setTimeout(setHeight, 100);
+		window.addEventListener('resize', setHeight);
+		// Drag & drop
 		host.addEventListener('dragenter', (e) => {
 			e.preventDefault();
 			dispatch(() => ({ type: 'SET_DRAGGING', payload: true }));
@@ -641,7 +643,7 @@ const actionHandlers = {
 
 	'SELECT_ATTACHMENT': ({ action, updateState, state }) => {
 		const sys_id = action.payload.sys_id;
-		updateState({ selectedId: sys_id, blobUrl: null, previewText: null, previewHtml: null, previewPages: null, previewSheets: null, activeSheet: 0 });
+		updateState({ selectedId: sys_id, blobUrl: null, previewText: null, previewHtml: null, previewSheets: null, docxData: null, activeSheet: 0 });
 		const attachment = (state.attachments || []).find(a => a.sys_id === sys_id);
 		if (attachment) fetchPreview(attachment, updateState);
 	},
@@ -700,14 +702,12 @@ const actionHandlers = {
 				fetchAttachments(properties.table, properties.sysid, updateState);
 			})
 			.catch(err => {
-				console.error('[AV] Delete error:', err);
 				updateState({ deleting: false, uploadError: err.message });
 			});
 	},
-
 };
 
-// ─── Register ─────────────────────────────────────────────────────────────────
+// ─── Register ───────────────────────────────────────────────────────────────
 
 createCustomElement('sofbv-attachment-viewer', {
 	renderer: { type: snabbdom },
