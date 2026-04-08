@@ -32,8 +32,18 @@
         {
           "name": "enableParent",
           "label": "Enable parent attachments",
+          "description": "Show toggle to view attachments from parent records",
           "fieldType": "boolean",
-          "defaultValue": false
+          "managed": false,
+          "readOnly": false,
+          "required": false,
+          "selectable": false,
+          "defaultValue": false,
+          "typeMetadata": {
+            "schema": {
+              "type": "boolean"
+            }
+          }
         }
       ]
     }
