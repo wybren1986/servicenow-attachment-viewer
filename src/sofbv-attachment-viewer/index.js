@@ -527,6 +527,7 @@ const view = (state, { dispatch }) => {
 	const selectedId = state.selectedId || null;
 	const loading = state.loading || false;
 	const allParentAtts = (state.parentChain || []).flatMap(p => p.attachments);
+	const isParentAtt = allParentAtts.some(a => a.sys_id === selectedId);
 	const selected = attachments.find(a => a.sys_id === selectedId)
 		|| allParentAtts.find(a => a.sys_id === selectedId)
 		|| null;
@@ -810,7 +811,7 @@ const view = (state, { dispatch }) => {
 			<div className="av-main">
 				{selected && (
 					<div className="av-header">
-						{state.editingName ? (
+						{state.editingName && !isParentAtt ? (
 							<div className="av-header-edit">
 								<div className="av-file-icon">{fileIcon(selected.file_type)}</div>
 								<input
@@ -848,15 +849,19 @@ const view = (state, { dispatch }) => {
 						)}
 						{!state.editingName && (
 							<div className="av-header-actions">
-								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'START_RENAME', payload: selected.file_name }))}>
-									<now-button-iconic icon="pencil-page-outline" variant="tertiary" size="md" tooltipContent="Rename" />
-								</span>
+								{!isParentAtt && (
+									<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'START_RENAME', payload: selected.file_name }))}>
+										<now-button-iconic icon="pencil-page-outline" variant="tertiary" size="md" tooltipContent="Rename" />
+									</span>
+								)}
 								<a href={downloadUrl(selected.sys_id)} download={selected.file_name} className="av-download-link">
 									<now-button-iconic icon="download-outline" variant="tertiary" size="md" tooltipContent="Download" />
 								</a>
-								<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'CONFIRM_DELETE', payload: { sys_id: selected.sys_id, file_name: selected.file_name } }))}>
-									<now-button-iconic icon="trash-outline" variant="tertiary" size="md" tooltipContent="Delete" />
-								</span>
+								{!isParentAtt && (
+									<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'CONFIRM_DELETE', payload: { sys_id: selected.sys_id, file_name: selected.file_name } }))}>
+										<now-button-iconic icon="trash-outline" variant="tertiary" size="md" tooltipContent="Delete" />
+									</span>
+								)}
 							</div>
 						)}
 					</div>
