@@ -2,6 +2,8 @@
 
 A full-featured attachment viewer component for ServiceNow's Next Experience (UI Builder). Preview, upload, download, rename, and delete attachments directly from any record — with support for parent record attachments.
 
+All file rendering happens client-side in the browser — no server-side processing or external services required. Documents are fetched via the ServiceNow Attachment API and rendered entirely in the user's browser.
+
 ![Attachment Viewer](docs/Example.png)
 
 ## Features
