@@ -35,6 +35,17 @@ body {
 	background-color: inherit;
 }
 
+.av-empty-actions {
+	display: flex;
+	flex-direction: column;
+	gap: $now-global-space--sm;
+	align-items: center;
+
+	&.-row {
+		flex-direction: row;
+	}
+}
+
 .av-empty-card {
 	background: rgb(var(--now-container--color, var(--now-color--neutral-0, 255, 255, 255)));
 	border: var(--now-card--border-width, var(--now-container--border-width, 1px)) solid RGB(var(--now-card--border-color, var(--now-container--border-color, var(--now-color_border--tertiary, var(--now-color--neutral-3, 236, 237, 240)))));
@@ -95,12 +106,58 @@ body {
 	}
 }
 
-.av-list {
+.av-list-items {
 	list-style: none !important;
 	margin: 0;
+	padding: 0;
 }
 
-.av-list .av-list-item {
+.av-sidebar-footer {
+	flex-shrink: 0;
+	border-top: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
+}
+
+.av-toggle-inline {
+	display: flex;
+	align-items: center;
+	gap: $now-global-space--xs;
+	flex: 1;
+	min-width: 0;
+}
+
+.av-toggle-label {
+	font-size: 12px;
+	font-weight: 500;
+	color: rgb(var(--now-color--neutral-12, 88, 90, 99));
+	white-space: nowrap;
+}
+
+.av-actions-right {
+	display: flex;
+	align-items: center;
+	gap: $now-global-space--xs;
+}
+
+.av-parent-section {
+	margin-top: $now-global-space--xs;
+}
+
+.av-parent-header {
+	display: flex;
+	align-items: center;
+	padding: $now-global-space--xs $now-global-space--sm;
+	margin: $now-global-space--sm 0;
+	background: rgb(var(--now-color--neutral-2, 244, 245, 247));
+	border-radius: 4px;
+}
+
+.av-parent-label {
+	font-size: 12px;
+	font-weight: 600;
+	color: rgb(var(--now-color--neutral-8, 139, 141, 150));
+}
+
+.av-list-items .av-list-item {
 	list-style: none !important;
 }
 
@@ -712,10 +769,9 @@ body {
 .av-sidebar-actions {
 	display: flex;
 	align-items: center;
-	gap: $now-global-space--xs;
+	justify-content: space-between;
+	gap: $now-global-space--sm;
 	padding: $now-global-space--sm;
-	border-top: 1px solid rgb(var(--now-color--neutral-5, 214, 214, 216));
-	flex-shrink: 0;
 }
 
 .av-upload-wrap {
@@ -750,7 +806,7 @@ body {
 	flex-direction: column;
 	align-items: center;
 	gap: 12px;
-	color: #0073e6;
+	color: rgb(var(--now-color--neutral-18, 29, 29, 29));
 	font-size: 1rem;
 	font-weight: 600;
 

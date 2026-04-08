@@ -21,6 +21,7 @@
     "@servicenow/now-loader": "^19.8.2-ecd",
     "@servicenow/now-message": "^19.8.2-ecd",
     "@servicenow/now-modal": "19.8.2-ecd",
+    "@servicenow/now-toggle": "^19.8.2-ecd",
     "@servicenow/sass-kit": "latest",
     "@servicenow/ui-core": "24.1.1",
     "@servicenow/ui-effect-http": "24.1.1",

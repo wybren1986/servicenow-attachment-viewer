@@ -7,12 +7,13 @@ import '@servicenow/now-icon';
 import '@servicenow/now-loader';
 import '@servicenow/now-message';
 import '@servicenow/now-illustration';
+import '@servicenow/now-toggle';
 import { renderAsync } from 'docx-preview';
 import * as XLSX from 'xlsx';
 import MsgReaderDefault from 'msgreader/lib/MsgReader';
 const MsgReader = MsgReaderDefault.default || MsgReaderDefault;
 
-const AV_VERSION = '2.0.0';
+const AV_VERSION = '3.0.0';
 const AV_BUILD = '2026-04-08';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -318,6 +319,71 @@ const uploadFiles = (files, table, sysid, updateState) => {
 		});
 };
 
+// ─── Fetch Parent Info ──────────────────────────────────────────────────────
+
+// Recursively fetch parent chain: table → parent → parent's parent → ...
+const fetchParentChain = (table, sysid, updateState, seen) => {
+	seen = seen || new Set();
+	if (seen.has(sysid)) {
+		updateState({ parentChain: Array.from(seen.size ? [] : []) });
+		return;
+	}
+
+	const resolveParent = (tbl, sid, chain) => {
+		if (seen.has(sid)) {
+			updateState({ parentChain: chain });
+			return;
+		}
+		seen.add(sid);
+
+		fetch(`/api/now/table/${tbl}/${sid}?sysparm_fields=parent&sysparm_display_value=all`, {
+			credentials: 'same-origin', headers: { Accept: 'application/json' }
+		})
+			.then(res => res.json())
+			.then(data => {
+				const parent = data?.result?.parent;
+				if (!parent || !parent.value || seen.has(parent.value)) {
+					updateState({ parentChain: chain });
+					return;
+				}
+				// Get actual table via sys_class_name
+				fetch(`/api/now/table/task/${parent.value}?sysparm_fields=sys_class_name,number&sysparm_display_value=all&sysparm_limit=1`, {
+					credentials: 'same-origin', headers: { Accept: 'application/json' }
+				})
+					.then(res => res.json())
+					.then(taskData => {
+						const parentTable = taskData?.result?.sys_class_name?.value || taskData?.result?.sys_class_name || 'task';
+						const number = taskData?.result?.number?.display_value || taskData?.result?.number || parent.display_value || parent.value;
+						const entry = { table: parentTable, sysid: parent.value, display: number, attachments: [] };
+						chain.push(entry);
+
+						// Fetch attachments for this parent
+						const query = `table_name=${parentTable}^table_sys_id=${parent.value}`;
+						return fetch(`/api/now/attachment?sysparm_query=${encodeURIComponent(query)}&sysparm_limit=200`, {
+							credentials: 'same-origin', headers: { Accept: 'application/json' }
+						})
+							.then(res => res.json())
+							.then(attData => {
+								entry.attachments = (Array.isArray(attData?.result) ? attData.result : []).map(item => ({
+									sys_id: item.sys_id,
+									file_name: item.file_name,
+									size_bytes: item.size_bytes,
+									content_type: item.content_type,
+									file_type: (item.file_name || '').split('.').pop().toLowerCase(),
+									sys_created_on: item.sys_created_on
+								}));
+								// Recurse to next parent
+								resolveParent(parentTable, parent.value, chain);
+							});
+					})
+					.catch(() => updateState({ parentChain: chain }));
+			})
+			.catch(() => updateState({ parentChain: chain }));
+	};
+
+	resolveParent(table, sysid, []);
+};
+
 // ─── Fetch Attachments ──────────────────────────────────────────────────────
 
 const fetchAttachments = (table, sysid, updateState, keepSelectedId) => {
@@ -351,7 +417,7 @@ const renderPreview = (attachment, state, dispatch) => {
 	if (!attachment) {
 		return (
 			<div className="av-preview-state">
-				<p>Selecteer een bijlage om te bekijken</p>
+				<p>Select an attachment to preview</p>
 			</div>
 		);
 	}
@@ -460,7 +526,10 @@ const view = (state, { dispatch }) => {
 	const attachments = state.attachments || [];
 	const selectedId = state.selectedId || null;
 	const loading = state.loading || false;
-	const selected = attachments.find(a => a.sys_id === selectedId) || null;
+	const allParentAtts = (state.parentChain || []).flatMap(p => p.attachments);
+	const selected = attachments.find(a => a.sys_id === selectedId)
+		|| allParentAtts.find(a => a.sys_id === selectedId)
+		|| null;
 
 	if (loading) {
 		return (
@@ -471,18 +540,130 @@ const view = (state, { dispatch }) => {
 	}
 
 	if (!attachments.length) {
+		const emptyDragging = state.dragging || false;
+		const emptyUploading = state.uploading || false;
+		const parentHasAtts = (state.parentChain || []).some(p => p.attachments.length > 0);
+		const showParentList = state.properties.enableParent && state.showParent && parentHasAtts;
+
+		if (showParentList) {
+			return (
+				<div className="av-root">
+					{emptyDragging && (
+						<div className="av-drop-overlay">
+							<div className="av-drop-message">
+								<now-icon icon="upload-outline" size="lg" />
+								<p>Drop files to upload</p>
+							</div>
+						</div>
+					)}
+					{emptyUploading && (
+						<div className="av-drop-overlay">
+							<div className="av-upload-card">
+								<now-loader label="Uploading..." action="Cancel" />
+							</div>
+						</div>
+					)}
+					<div className="av-sidebar">
+						<div className="av-list">
+							{state.parentChain.map(parent => (
+								parent.attachments.length > 0 && (
+									<div className="av-parent-section" key={parent.sysid}>
+										<div className="av-parent-header">
+											<span className="av-parent-label">{parent.display}</span>
+										</div>
+										<ul className="av-list-items">
+											{parent.attachments.map(a => (
+												<li
+													key={'p-' + a.sys_id}
+													className={'av-list-item' + (a.sys_id === selectedId ? ' -active' : '')}
+													onclick={() => dispatch(() => ({ type: 'SELECT_ATTACHMENT', payload: { sys_id: a.sys_id } }))}
+												>
+													<div className="av-file-icon">{fileIcon(a.file_type)}</div>
+													<div className="av-list-item-info">
+														<div className="av-list-item-name">{a.file_name}</div>
+														<div className="av-list-item-meta">{formatSize(a.size_bytes)}{a.sys_created_on ? ' · ' + formatDate(a.sys_created_on) : ''}</div>
+													</div>
+												</li>
+											))}
+										</ul>
+									</div>
+								)
+							))}
+						</div>
+						<div className="av-sidebar-footer">
+							<div className="av-sidebar-actions">
+								<div className="av-toggle-inline">
+									<span className="av-toggle-label">Show parent</span>
+									<now-toggle checked={true} size="sm" />
+								</div>
+								<div className="av-actions-right">
+									<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
+										<now-button-iconic icon="plus-outline" variant="primary" size="md" tooltipContent="Upload" />
+									</span>
+									<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'FETCH_ATTACHMENTS' }))}>
+										<now-button-iconic icon="sync-outline" variant="tertiary" size="md" tooltipContent="Refresh" />
+									</span>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div className="av-main">
+						{selected && (
+							<div className="av-header">
+								<div className="av-header-title">
+									<div className="av-file-icon">{fileIcon(selected.file_type)}</div>
+									<div>
+										<div className="av-header-filename">{selected.file_name}</div>
+										<div className="av-header-meta">{formatSize(selected.size_bytes)}</div>
+									</div>
+								</div>
+								<div className="av-header-actions">
+									<a href={downloadUrl(selected.sys_id)} download={selected.file_name} className="av-download-link">
+										<now-button-iconic icon="download-outline" variant="tertiary" size="md" tooltipContent="Download" />
+									</a>
+								</div>
+							</div>
+						)}
+						<div className="av-content">
+							{renderPreview(selected, state, dispatch)}
+						</div>
+					</div>
+				</div>
+			);
+		}
+
 		return (
-			<div className="av-empty">
+			<div className="av-empty" style={{ position: 'relative' }}>
+				{emptyDragging && (
+					<div className="av-drop-overlay">
+						<div className="av-drop-message">
+							<now-icon icon="upload-outline" size="lg" />
+							<p>Drop files to upload</p>
+						</div>
+					</div>
+				)}
+				{emptyUploading && (
+					<div className="av-drop-overlay">
+						<div className="av-upload-card">
+							<now-loader label="Uploading..." action="Cancel" />
+						</div>
+					</div>
+				)}
 				<now-message alignment="vertical-centered">
 					<now-illustration slot="media" illustration="add-attachment" size="auto" />
 					<div slot="message">
 						<h3 className="now-heading--md now-m-block--0">No attachments available</h3>
 						<p className="now-m-block-start--sm now-m-block-end--0 now-color_text--tertiary">Drag or select files to upload</p>
 					</div>
-					<div slot="actions">
+					<div slot="actions" className="av-empty-actions -row">
 						<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
 							<now-button label="Select file" variant="primary" size="md" />
 						</span>
+						{state.properties.enableParent && parentHasAtts && (
+							<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'NOW_TOGGLE#CHECKED_SET', payload: { value: true } }))}>
+								<now-button label="Show parent attachments" variant="secondary" size="md" />
+							</span>
+						)}
 					</div>
 				</now-message>
 			</div>
@@ -563,28 +744,66 @@ const view = (state, { dispatch }) => {
 			)}
 
 			<div className="av-sidebar">
-				<ul className="av-list">
-					{attachments.map(a => (
-						<li
-							key={a.sys_id}
-							className={'av-list-item' + (a.sys_id === selectedId ? ' -active' : '')}
-							onclick={() => dispatch(() => ({ type: 'SELECT_ATTACHMENT', payload: { sys_id: a.sys_id } }))}
-						>
-							<div className="av-file-icon">{fileIcon(a.file_type)}</div>
-							<div className="av-list-item-info">
-								<div className="av-list-item-name">{a.file_name}</div>
-								<div className="av-list-item-meta">{formatSize(a.size_bytes)}{a.sys_created_on ? ' · ' + formatDate(a.sys_created_on) : ''}</div>
+				<div className="av-list">
+					<ul className="av-list-items">
+						{attachments.map(a => (
+							<li
+								key={a.sys_id}
+								className={'av-list-item' + (a.sys_id === selectedId ? ' -active' : '')}
+								onclick={() => dispatch(() => ({ type: 'SELECT_ATTACHMENT', payload: { sys_id: a.sys_id } }))}
+							>
+								<div className="av-file-icon">{fileIcon(a.file_type)}</div>
+								<div className="av-list-item-info">
+									<div className="av-list-item-name">{a.file_name}</div>
+									<div className="av-list-item-meta">{formatSize(a.size_bytes)}{a.sys_created_on ? ' · ' + formatDate(a.sys_created_on) : ''}</div>
+								</div>
+							</li>
+						))}
+					</ul>
+
+					{state.showParent && state.parentChain && state.parentChain.map(parent => (
+						parent.attachments.length > 0 && (
+							<div className="av-parent-section" key={parent.sysid}>
+								<div className="av-parent-header">
+									<span className="av-parent-label">{parent.display}</span>
+								</div>
+								<ul className="av-list-items">
+									{parent.attachments.map(a => (
+										<li
+											key={'p-' + a.sys_id}
+											className={'av-list-item' + (a.sys_id === selectedId ? ' -active' : '')}
+											onclick={() => dispatch(() => ({ type: 'SELECT_ATTACHMENT', payload: { sys_id: a.sys_id } }))}
+										>
+											<div className="av-file-icon">{fileIcon(a.file_type)}</div>
+											<div className="av-list-item-info">
+												<div className="av-list-item-name">{a.file_name}</div>
+												<div className="av-list-item-meta">{formatSize(a.size_bytes)}{a.sys_created_on ? ' · ' + formatDate(a.sys_created_on) : ''}</div>
+											</div>
+										</li>
+									))}
+								</ul>
 							</div>
-						</li>
+						)
 					))}
-				</ul>
-				<div className="av-sidebar-actions">
-					<div className="av-upload-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
-						<now-button label="Upload" variant="primary" size="md" icon="upload-outline" />
+				</div>
+
+				<div className="av-sidebar-footer">
+					<div className="av-sidebar-actions">
+						{state.properties.enableParent && (
+							<div className="av-toggle-inline">
+								<span className="av-toggle-label">Show parent</span>
+								<now-toggle checked={state.showParent || false} disabled={!state.parentChain || !state.parentChain.length} size="sm" />
+							</div>
+						)}
+						<div className="av-actions-right">
+							<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'OPEN_FILE_PICKER' }))}>
+								<now-button-iconic icon="plus-outline" variant="primary" size="md" tooltipContent="Upload" />
+							</span>
+							<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'FETCH_ATTACHMENTS' }))}>
+								<now-button-iconic icon="sync-outline" variant="tertiary" size="md" tooltipContent="Refresh" />
+							</span>
+						</div>
 					</div>
-					<span className="av-icon-wrap" onclick={() => dispatch(() => ({ type: 'FETCH_ATTACHMENTS' }))}>
-						<now-button-iconic icon="sync-outline" variant="tertiary" size="md" tooltipContent="Refresh" />
-					</span>
 				</div>
 			</div>
 
@@ -605,7 +824,7 @@ const view = (state, { dispatch }) => {
 											dispatch(() => ({ type: 'SET_EDITING_NAME', payload: el.value }));
 										});
 										el.addEventListener('keydown', (e) => {
-											if (e.key === 'Enter') dispatch(() => ({ type: 'SAVE_RENAME' }));
+											if (e.key === 'Enter') dispatch(() => ({ type: 'SAVE_RENAME', payload: { value: el.value } }));
 											if (e.key === 'Escape') dispatch(() => ({ type: 'CANCEL_RENAME' }));
 										});
 									}}
@@ -656,6 +875,9 @@ const actionHandlers = {
 	[COMPONENT_BOOTSTRAPPED]: ({ host, dispatch, updateState, properties }) => {
 		if (properties.sysid) {
 			fetchAttachments(properties.table, properties.sysid, updateState);
+			if (properties.enableParent) {
+				fetchParentChain(properties.table, properties.sysid, updateState);
+			}
 		}
 		// Auto-size height to available space
 		const setHeight = () => {
@@ -667,11 +889,11 @@ const actionHandlers = {
 		};
 		setTimeout(setHeight, 100);
 		window.addEventListener('resize', setHeight);
-		// Drag & drop (only for files, not text selection)
-		const hasFiles = (e) => e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.indexOf('Files') > -1;
+		// Drag & drop (skip when editing filename)
 		host.addEventListener('dragenter', (e) => {
-			if (!hasFiles(e)) return;
 			e.preventDefault();
+			const active = host.shadowRoot && host.shadowRoot.activeElement;
+			if (active && active.tagName === 'INPUT') return;
 			dispatch(() => ({ type: 'SET_DRAGGING', payload: true }));
 		});
 		host.addEventListener('dragover', (e) => { e.preventDefault(); });
@@ -683,7 +905,9 @@ const actionHandlers = {
 		host.addEventListener('drop', (e) => {
 			e.preventDefault();
 			dispatch(() => ({ type: 'SET_DRAGGING', payload: false }));
-			dispatch(() => ({ type: 'UPLOAD_FILES', payload: { files: e.dataTransfer.files } }));
+			if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+				dispatch(() => ({ type: 'UPLOAD_FILES', payload: { files: e.dataTransfer.files } }));
+			}
 		});
 	},
 
@@ -691,6 +915,9 @@ const actionHandlers = {
 		const { name } = action.payload || {};
 		if ((name === 'sysid' || name === 'table') && properties.sysid) {
 			fetchAttachments(properties.table, properties.sysid, updateState);
+			if (properties.enableParent) {
+				fetchParentChain(properties.table, properties.sysid, updateState);
+			}
 		}
 	},
 
@@ -701,7 +928,9 @@ const actionHandlers = {
 	'SELECT_ATTACHMENT': ({ action, updateState, state }) => {
 		const sys_id = action.payload.sys_id;
 		updateState({ selectedId: sys_id, blobUrl: null, previewText: null, previewHtml: null, previewSheets: null, docxData: null, activeSheet: 0 });
-		const attachment = (state.attachments || []).find(a => a.sys_id === sys_id);
+		const allParentAtts = (state.parentChain || []).flatMap(p => p.attachments);
+		const attachment = (state.attachments || []).find(a => a.sys_id === sys_id)
+			|| allParentAtts.find(a => a.sys_id === sys_id);
 		if (attachment) fetchPreview(attachment, updateState);
 	},
 
@@ -736,8 +965,8 @@ const actionHandlers = {
 		updateState({ editingName: null, editingExt: null });
 	},
 
-	'SAVE_RENAME': ({ state, updateState, properties }) => {
-		const nameOnly = (state.editingName || '').trim();
+	'SAVE_RENAME': ({ action, state, updateState, properties }) => {
+		const nameOnly = (action.payload?.value || state.editingName || '').trim();
 		const ext = state.editingExt || '';
 		const selected = (state.attachments || []).find(a => a.sys_id === state.selectedId);
 		const fullName = nameOnly + ext;
@@ -767,6 +996,10 @@ const actionHandlers = {
 
 	'SET_ACTIVE_SHEET': ({ action, updateState }) => {
 		updateState({ activeSheet: action.payload.index });
+	},
+
+	'NOW_TOGGLE#CHECKED_SET': ({ action, updateState }) => {
+		updateState({ showParent: action.payload.value });
 	},
 
 	'NOW_LOADER#ACTION_CLICKED': ({ updateState }) => {
@@ -813,6 +1046,7 @@ createCustomElement('sofbv-attachment-viewer', {
 	actionHandlers,
 	properties: {
 		table: { default: 'incident', schema: { type: 'string' } },
-		sysid: { default: '', schema: { type: 'string' } }
+		sysid: { default: '', schema: { type: 'string' } },
+		enableParent: { default: false, schema: { type: 'boolean' } }
 	}
 });

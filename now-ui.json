@@ -28,6 +28,12 @@
           "fieldType": "string",
           "required": true,
           "defaultValue": ""
+        },
+        {
+          "name": "enableParent",
+          "label": "Enable parent attachments",
+          "fieldType": "boolean",
+          "defaultValue": false
         }
       ]
     }

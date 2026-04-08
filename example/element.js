@@ -7,5 +7,7 @@ el.innerHTML = `<sofbv-attachment-viewer table="incident"></sofbv-attachment-vie
 
 // Stel sysid iets later in zodat COMPONENT_PROPERTY_CHANGED correct vuurt
 setTimeout(() => {
-	document.querySelector('sofbv-attachment-viewer').sysid = 'd24d517d9737fe505e06b586f053af11';
+	const el = document.querySelector('sofbv-attachment-viewer');
+	el.sysid = '2edffdbe97448b105e06b586f053af5d';
+	el.enableParent = true;
 }, 100);
