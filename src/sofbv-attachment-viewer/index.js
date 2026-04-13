@@ -8,13 +8,37 @@ import '@servicenow/now-loader';
 import '@servicenow/now-message';
 import '@servicenow/now-illustration';
 import '@servicenow/now-toggle';
-import { renderAsync } from 'docx-preview';
 import * as XLSX from 'xlsx';
 import MsgReaderDefault from 'msgreader/lib/MsgReader';
 const MsgReader = MsgReaderDefault.default || MsgReaderDefault;
 
 const AV_VERSION = '3.0.0';
 const AV_BUILD = '2026-04-08';
+
+// ─── setImmediate polyfill ────────────────────────────────────────────────────
+// docx-preview uses a setImmediate polyfill that falls back to postMessage.
+// ServiceNow's post-message.js intercepts all postMessage events and tries to
+// JSON.parse them, which breaks on the "setImmediate" string payload.
+// Must be set BEFORE docx-preview is loaded, hence the lazy import below.
+if (typeof window !== 'undefined' && !window.setImmediate) {
+	window.setImmediate = (fn, ...args) => setTimeout(fn, 0, ...args);
+	window.clearImmediate = (id) => clearTimeout(id);
+}
+
+// Lazy-load docx-preview so the polyfill above is registered first
+let _renderAsync = null;
+const getRenderAsync = () => {
+	if (!_renderAsync) {
+		_renderAsync = import('docx-preview').then(m => m.renderAsync);
+	}
+	return _renderAsync;
+};
+
+// ─── Auth helper ─────────────────────────────────────────────────────────────
+// ServiceNow REST APIs require the X-UserToken (CSRF) header. Without it,
+// requests may redirect to the login page. window.g_ck is the global token
+// available for authenticated users in the ServiceNow platform.
+const getAuthHeaders = () => ({ 'X-UserToken': window.g_ck || '' });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -248,7 +272,7 @@ const fetchPreview = (attachment, updateState) => {
 	updateState({ blobUrl: null, previewText: null, previewHtml: null, previewSheets: null, docxData: null, activeSheet: 0, previewLoading: true });
 
 	if (cat === 'text') {
-		fetch(downloadUrl(sys_id), { credentials: 'same-origin' })
+		fetch(downloadUrl(sys_id), { credentials: 'same-origin', headers: { ...getAuthHeaders() } })
 			.then(res => res.text())
 			.then(text => updateState({ previewText: text, previewLoading: false }))
 			.catch(() => updateState({ previewLoading: false }));
@@ -256,14 +280,14 @@ const fetchPreview = (attachment, updateState) => {
 	}
 
 	if (cat === 'pdf') {
-		fetch(downloadUrl(sys_id), { credentials: 'same-origin' })
+		fetch(downloadUrl(sys_id), { credentials: 'same-origin', headers: { ...getAuthHeaders() } })
 			.then(res => res.blob())
 			.then(blob => updateState({ blobUrl: URL.createObjectURL(blob), previewLoading: false }))
 			.catch(() => updateState({ previewLoading: false }));
 		return;
 	}
 
-	fetch(downloadUrl(sys_id), { credentials: 'same-origin' })
+	fetch(downloadUrl(sys_id), { credentials: 'same-origin', headers: { ...getAuthHeaders() } })
 		.then(res => res.arrayBuffer())
 		.then(buf => {
 			if (cat === 'word') {
@@ -301,7 +325,7 @@ const uploadFiles = (files, table, sysid, updateState) => {
 		return fetch(url, {
 			method: 'POST',
 			credentials: 'same-origin',
-			headers: { 'Content-Type': file.type || 'application/octet-stream' },
+			headers: { 'Content-Type': file.type || 'application/octet-stream', ...getAuthHeaders() },
 			body: file
 		}).then(res => {
 			if (!res.ok) throw new Error(`Upload failed for ${file.name}: ${res.status}`);
@@ -337,7 +361,7 @@ const fetchParentChain = (table, sysid, updateState, seen) => {
 		seen.add(sid);
 
 		fetch(`/api/now/table/${tbl}/${sid}?sysparm_fields=parent&sysparm_display_value=all`, {
-			credentials: 'same-origin', headers: { Accept: 'application/json' }
+			credentials: 'same-origin', headers: { Accept: 'application/json', ...getAuthHeaders() }
 		})
 			.then(res => res.json())
 			.then(data => {
@@ -348,7 +372,7 @@ const fetchParentChain = (table, sysid, updateState, seen) => {
 				}
 				// Get actual table via sys_class_name
 				fetch(`/api/now/table/task/${parent.value}?sysparm_fields=sys_class_name,number&sysparm_display_value=all&sysparm_limit=1`, {
-					credentials: 'same-origin', headers: { Accept: 'application/json' }
+					credentials: 'same-origin', headers: { Accept: 'application/json', ...getAuthHeaders() }
 				})
 					.then(res => res.json())
 					.then(taskData => {
@@ -360,7 +384,7 @@ const fetchParentChain = (table, sysid, updateState, seen) => {
 						// Fetch attachments for this parent
 						const query = `table_name=${parentTable}^table_sys_id=${parent.value}`;
 						return fetch(`/api/now/attachment?sysparm_query=${encodeURIComponent(query)}&sysparm_limit=200`, {
-							credentials: 'same-origin', headers: { Accept: 'application/json' }
+							credentials: 'same-origin', headers: { Accept: 'application/json', ...getAuthHeaders() }
 						})
 							.then(res => res.json())
 							.then(attData => {
@@ -391,7 +415,7 @@ const fetchAttachments = (table, sysid, updateState, keepSelectedId) => {
 	const url = `/api/now/attachment?sysparm_query=${encodeURIComponent(query)}&sysparm_limit=200`;
 	updateState({ loading: true });
 
-	fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+	fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json', ...getAuthHeaders() } })
 		.then(res => res.json())
 		.then(data => {
 			const result = Array.isArray(data?.result) ? data.result : [];
@@ -456,17 +480,19 @@ const renderPreview = (attachment, state, dispatch) => {
 		return (
 			<div key={'docx-' + sys_id} className="av-preview -docx"
 				hook-insert={(vnode) => {
-					renderAsync(state.docxData, vnode.elm, null, {
-						className: 'av-docx-container',
-						inWrapper: true,
-						ignoreWidth: false,
-						ignoreHeight: false,
-						ignoreFonts: false,
-						renderFontTable: true,
-						useBase64URL: true,
-						renderHeaders: true,
-						renderFooters: true,
-						renderFootnotes: true
+					getRenderAsync().then(renderAsync => {
+						renderAsync(state.docxData, vnode.elm, null, {
+							className: 'av-docx-container',
+							inWrapper: true,
+							ignoreWidth: false,
+							ignoreHeight: false,
+							ignoreFonts: false,
+							renderFontTable: true,
+							useBase64URL: true,
+							renderHeaders: true,
+							renderFooters: true,
+							renderFootnotes: true
+						});
 					}).catch(() => {});
 				}}
 			/>
@@ -988,7 +1014,7 @@ const actionHandlers = {
 		fetch(`/api/now/table/sys_attachment/${selected.sys_id}`, {
 			method: 'PATCH',
 			credentials: 'same-origin',
-			headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+			headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...getAuthHeaders() },
 			body: JSON.stringify({ file_name: fullName })
 		})
 			.then(res => {
