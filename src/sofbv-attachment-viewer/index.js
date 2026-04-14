@@ -59,7 +59,7 @@ const getCategory = (ext) => {
 	if (ext === 'msg')  return 'msg';
 	if (['xls', 'xlsx'].includes(ext)) return 'excel';
 	if (['ppt', 'pptx'].includes(ext)) return 'ppt';
-	if (['doc', 'docx'].includes(ext)) return 'word';
+	if (['doc', 'docx', 'docm'].includes(ext)) return 'word';
 	if (IMAGE_TYPES.includes(ext))     return 'image';
 	if (TEXT_TYPES.includes(ext))      return 'text';
 	return 'unsupported';
@@ -170,6 +170,19 @@ const buildMsgHtml = (MsgReader, buf, rawBuf) => {
 };
 
 // ─── Excel Preview ──────────────────────────────────────────────────────────
+
+// .xlsx is a ZIP. Chart definitions live under xl/charts/chart*.xml — we
+// scan the raw bytes for those filenames (they appear as readable strings
+// in the central directory) to hint at chart count without a zip library.
+const countXlsxCharts = (buf) => {
+	try {
+		const bytes = new Uint8Array(buf);
+		const str = new TextDecoder('latin1').decode(bytes);
+		const matches = str.match(/xl\/charts\/chart\d+\.xml/g);
+		if (!matches) return 0;
+		return new Set(matches).size;
+	} catch (_) { return 0; }
+};
 
 const buildExcelSheets = (buf) => {
 	const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
@@ -291,7 +304,13 @@ const processPreviewBlob = (blob, cat, updateState) => {
 		if (cat === 'word') {
 			updateState({ docxData: buf, previewLoading: false, pendingPreviewId: null });
 		} else if (cat === 'excel') {
-			updateState({ previewSheets: buildExcelSheets(buf), activeSheet: 0, previewLoading: false, pendingPreviewId: null });
+			updateState({
+				previewSheets: buildExcelSheets(buf),
+				excelChartCount: countXlsxCharts(buf),
+				activeSheet: 0,
+				previewLoading: false,
+				pendingPreviewId: null
+			});
 		} else if (cat === 'msg') {
 			updateState({ previewHtml: buildMsgHtml(MsgReader, buf, buf), previewLoading: false, pendingPreviewId: null });
 		}
@@ -366,8 +385,15 @@ const renderPreview = (attachment, state, dispatch) => {
 
 	if (cat === 'excel' && previewSheets && previewSheets.length) {
 		const sheet = previewSheets[activeSheet];
+		const chartCount = state.excelChartCount || 0;
 		return (
 			<div key={'excel-' + sys_id} className="av-preview -excel">
+				{chartCount > 0 && (
+					<div className="av-chart-notice">
+						<now-icon icon="info-circle-outline" size="sm" />
+						<span>This file contains {chartCount} chart{chartCount === 1 ? '' : 's'} — charts are not displayed in the preview. Download to view.</span>
+					</div>
+				)}
 				{previewSheets.length > 1 && (
 					<div className="av-excel-tabs">
 						{previewSheets.map((s, i) => (
