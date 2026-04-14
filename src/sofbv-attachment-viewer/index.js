@@ -1,5 +1,6 @@
 import { createCustomElement, actionTypes } from '@servicenow/ui-core';
 const { COMPONENT_BOOTSTRAPPED, COMPONENT_PROPERTY_CHANGED } = actionTypes;
+import { createHttpEffect } from '@servicenow/ui-effect-http';
 import snabbdom from '@servicenow/ui-renderer-snabbdom';
 import styles from './styles.scss';
 import '@servicenow/now-button';
@@ -12,14 +13,13 @@ import * as XLSX from 'xlsx';
 import MsgReaderDefault from 'msgreader/lib/MsgReader';
 const MsgReader = MsgReaderDefault.default || MsgReaderDefault;
 
-const AV_VERSION = '3.0.0';
-const AV_BUILD = '2026-04-08';
+const AV_VERSION = '4.0.0';
+const AV_BUILD = '2026-04-14';
 
 // ─── setImmediate polyfill ────────────────────────────────────────────────────
 // docx-preview uses a setImmediate polyfill that falls back to postMessage.
 // ServiceNow's post-message.js intercepts all postMessage events and tries to
 // JSON.parse them, which breaks on the "setImmediate" string payload.
-// Must be set BEFORE docx-preview is loaded, hence the lazy import below.
 if (typeof window !== 'undefined' && !window.setImmediate) {
 	window.setImmediate = (fn, ...args) => setTimeout(fn, 0, ...args);
 	window.clearImmediate = (id) => clearTimeout(id);
@@ -33,12 +33,6 @@ const getRenderAsync = () => {
 	}
 	return _renderAsync;
 };
-
-// ─── Auth helper ─────────────────────────────────────────────────────────────
-// ServiceNow REST APIs require the X-UserToken (CSRF) header. Without it,
-// requests may redirect to the login page. window.g_ck is the global token
-// available for authenticated users in the ServiceNow platform.
-const getAuthHeaders = () => ({ 'X-UserToken': window.g_ck || '' });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -98,7 +92,10 @@ const fileIcon = (ext) => {
 	return <now-icon icon={icon} size="lg" style={{ color }} />;
 };
 
-const downloadUrl = (sys_id) => `/api/now/attachment/${sys_id}/file`;
+// sys_attachment.do is the UI-servlet path: on session expiry it redirects
+// to /login.do instead of returning 401 WWW-Authenticate: Basic, so it won't
+// trigger the browser's native auth popup for <a href> / <img src> usage.
+const downloadUrl = (sys_id) => `/sys_attachment.do?sys_id=${encodeURIComponent(sys_id)}`;
 
 // ─── MSG Preview ────────────────────────────────────────────────────────────
 
@@ -260,179 +257,45 @@ const buildExcelSheets = (buf) => {
 	});
 };
 
-// ─── Fetch Preview ──────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 const PREVIEW_CATS = ['pdf', 'word', 'excel', 'msg', 'text'];
 
-const fetchPreview = (attachment, updateState) => {
-	const { sys_id, file_type } = attachment;
-	const cat = getCategory(file_type);
-	if (!PREVIEW_CATS.includes(cat)) return;
+const mapAttachment = (item) => ({
+	sys_id: item.sys_id,
+	file_name: item.file_name,
+	size_bytes: item.size_bytes,
+	content_type: item.content_type,
+	file_type: (item.file_name || '').split('.').pop().toLowerCase(),
+	sys_created_on: item.sys_created_on
+});
 
-	updateState({ blobUrl: null, previewText: null, previewHtml: null, previewSheets: null, docxData: null, activeSheet: 0, previewLoading: true });
+const findAttachment = (state, sys_id) => {
+	const direct = (state.attachments || []).find(a => a.sys_id === sys_id);
+	if (direct) return direct;
+	const parents = (state.parentChain || []).flatMap(p => p.attachments);
+	return parents.find(a => a.sys_id === sys_id) || null;
+};
 
-	if (cat === 'text') {
-		fetch(downloadUrl(sys_id), { credentials: 'same-origin', headers: { ...getAuthHeaders() } })
-			.then(res => res.text())
-			.then(text => updateState({ previewText: text, previewLoading: false }))
-			.catch(() => updateState({ previewLoading: false }));
-		return;
-	}
-
+// Process a downloaded blob into preview state based on category.
+const processPreviewBlob = (blob, cat, updateState) => {
 	if (cat === 'pdf') {
-		fetch(downloadUrl(sys_id), { credentials: 'same-origin', headers: { ...getAuthHeaders() } })
-			.then(res => res.blob())
-			.then(blob => updateState({ blobUrl: URL.createObjectURL(blob), previewLoading: false }))
-			.catch(() => updateState({ previewLoading: false }));
+		updateState({ blobUrl: URL.createObjectURL(blob), previewLoading: false, pendingPreviewId: null });
 		return;
 	}
-
-	fetch(downloadUrl(sys_id), { credentials: 'same-origin', headers: { ...getAuthHeaders() } })
-		.then(res => res.arrayBuffer())
-		.then(buf => {
-			if (cat === 'word') {
-				updateState({ docxData: buf, previewLoading: false });
-				return;
-			}
-			if (cat === 'excel') {
-				const sheets = buildExcelSheets(buf);
-				updateState({ previewSheets: sheets, activeSheet: 0, previewLoading: false });
-			}
-			if (cat === 'msg') {
-				const html = buildMsgHtml(MsgReader, buf, buf);
-				updateState({ previewHtml: html, previewLoading: false });
-			}
-		})
-		.catch(() => updateState({ previewLoading: false }));
-};
-
-// ─── Upload ─────────────────────────────────────────────────────────────────
-
-const uploadFiles = (files, table, sysid, updateState) => {
-	if (!files || !files.length || !sysid) return;
-
-	const fileList = Array.from(files);
-	const tooLarge = fileList.filter(f => f.size > MAX_FILE_SIZE);
-	if (tooLarge.length) {
-		const names = tooLarge.map(f => `${f.name} (${formatSize(f.size)})`).join(', ');
-		updateState({ uploadError: `File(s) too large (max ${formatSize(MAX_FILE_SIZE)}): ${names}` });
+	if (cat === 'text') {
+		blob.text().then(text => updateState({ previewText: text, previewLoading: false, pendingPreviewId: null }));
 		return;
 	}
-
-	updateState({ uploading: true, uploadError: null });
-	const uploads = fileList.map(file => {
-		const url = `/api/now/attachment/file?table_name=${table}&table_sys_id=${sysid}&file_name=${encodeURIComponent(file.name)}`;
-		return fetch(url, {
-			method: 'POST',
-			credentials: 'same-origin',
-			headers: { 'Content-Type': file.type || 'application/octet-stream', ...getAuthHeaders() },
-			body: file
-		}).then(res => {
-			if (!res.ok) throw new Error(`Upload failed for ${file.name}: ${res.status}`);
-			return res;
-		});
-	});
-	Promise.all(uploads)
-		.then(() => {
-			updateState({ uploading: false });
-			fetchAttachments(table, sysid, updateState);
-		})
-		.catch(err => {
-			updateState({ uploading: false, uploadError: err.message });
-			fetchAttachments(table, sysid, updateState);
-		});
-};
-
-// ─── Fetch Parent Info ──────────────────────────────────────────────────────
-
-// Recursively fetch parent chain: table → parent → parent's parent → ...
-const fetchParentChain = (table, sysid, updateState, seen) => {
-	seen = seen || new Set();
-	if (seen.has(sysid)) {
-		updateState({ parentChain: Array.from(seen.size ? [] : []) });
-		return;
-	}
-
-	const resolveParent = (tbl, sid, chain) => {
-		if (seen.has(sid)) {
-			updateState({ parentChain: chain });
-			return;
+	blob.arrayBuffer().then(buf => {
+		if (cat === 'word') {
+			updateState({ docxData: buf, previewLoading: false, pendingPreviewId: null });
+		} else if (cat === 'excel') {
+			updateState({ previewSheets: buildExcelSheets(buf), activeSheet: 0, previewLoading: false, pendingPreviewId: null });
+		} else if (cat === 'msg') {
+			updateState({ previewHtml: buildMsgHtml(MsgReader, buf, buf), previewLoading: false, pendingPreviewId: null });
 		}
-		seen.add(sid);
-
-		fetch(`/api/now/table/${tbl}/${sid}?sysparm_fields=parent&sysparm_display_value=all`, {
-			credentials: 'same-origin', headers: { Accept: 'application/json', ...getAuthHeaders() }
-		})
-			.then(res => res.json())
-			.then(data => {
-				const parent = data?.result?.parent;
-				if (!parent || !parent.value || seen.has(parent.value)) {
-					updateState({ parentChain: chain });
-					return;
-				}
-				// Get actual table via sys_class_name
-				fetch(`/api/now/table/task/${parent.value}?sysparm_fields=sys_class_name,number&sysparm_display_value=all&sysparm_limit=1`, {
-					credentials: 'same-origin', headers: { Accept: 'application/json', ...getAuthHeaders() }
-				})
-					.then(res => res.json())
-					.then(taskData => {
-						const parentTable = taskData?.result?.sys_class_name?.value || taskData?.result?.sys_class_name || 'task';
-						const number = taskData?.result?.number?.display_value || taskData?.result?.number || parent.display_value || parent.value;
-						const entry = { table: parentTable, sysid: parent.value, display: number, attachments: [] };
-						chain.push(entry);
-
-						// Fetch attachments for this parent
-						const query = `table_name=${parentTable}^table_sys_id=${parent.value}`;
-						return fetch(`/api/now/attachment?sysparm_query=${encodeURIComponent(query)}&sysparm_limit=200`, {
-							credentials: 'same-origin', headers: { Accept: 'application/json', ...getAuthHeaders() }
-						})
-							.then(res => res.json())
-							.then(attData => {
-								entry.attachments = (Array.isArray(attData?.result) ? attData.result : []).map(item => ({
-									sys_id: item.sys_id,
-									file_name: item.file_name,
-									size_bytes: item.size_bytes,
-									content_type: item.content_type,
-									file_type: (item.file_name || '').split('.').pop().toLowerCase(),
-									sys_created_on: item.sys_created_on
-								}));
-								// Recurse to next parent
-								resolveParent(parentTable, parent.value, chain);
-							});
-					})
-					.catch(() => updateState({ parentChain: chain }));
-			})
-			.catch(() => updateState({ parentChain: chain }));
-	};
-
-	resolveParent(table, sysid, []);
-};
-
-// ─── Fetch Attachments ──────────────────────────────────────────────────────
-
-const fetchAttachments = (table, sysid, updateState, keepSelectedId) => {
-	const query = `table_name=${table}^table_sys_id=${sysid}`;
-	const url = `/api/now/attachment?sysparm_query=${encodeURIComponent(query)}&sysparm_limit=200`;
-	updateState({ loading: true });
-
-	fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json', ...getAuthHeaders() } })
-		.then(res => res.json())
-		.then(data => {
-			const result = Array.isArray(data?.result) ? data.result : [];
-			const attachments = result.map(item => ({
-				sys_id: item.sys_id,
-				file_name: item.file_name,
-				size_bytes: item.size_bytes,
-				content_type: item.content_type,
-				file_type: (item.file_name || '').split('.').pop().toLowerCase(),
-				sys_created_on: item.sys_created_on
-			}));
-			const kept = keepSelectedId && attachments.find(a => a.sys_id === keepSelectedId);
-			const selected = kept || (attachments.length ? attachments[0] : null);
-			updateState({ attachments, selectedId: selected ? selected.sys_id : null, loading: false, blobUrl: null, previewText: null, previewHtml: null, previewSheets: null, docxData: null, activeSheet: 0 });
-			if (selected) fetchPreview(selected, updateState);
-		})
-		.catch(() => updateState({ loading: false }));
+	});
 };
 
 // ─── Render Preview ─────────────────────────────────────────────────────────
@@ -908,14 +771,15 @@ const view = (state, { dispatch }) => {
 // ─── Action Handlers ────────────────────────────────────────────────────────
 
 const actionHandlers = {
-	[COMPONENT_BOOTSTRAPPED]: ({ host, dispatch, updateState, properties }) => {
+	// ─── Lifecycle ──────────────────────────────────────────────────────────
+	[COMPONENT_BOOTSTRAPPED]: ({ host, dispatch, properties }) => {
 		if (properties.sysid) {
-			fetchAttachments(properties.table, properties.sysid, updateState);
+			dispatch('LIST_ATTACHMENTS', { table: properties.table, sysid: properties.sysid });
 			if (properties.enableParent) {
-				fetchParentChain(properties.table, properties.sysid, updateState);
+				dispatch('PARENT_FETCH_RECORD', { table: properties.table, sysid: properties.sysid });
 			}
 		}
-		// Auto-size height to available space
+		// Auto-size height
 		const setHeight = () => {
 			const rect = host.getBoundingClientRect();
 			const available = window.innerHeight - rect.top;
@@ -925,67 +789,186 @@ const actionHandlers = {
 		};
 		setTimeout(setHeight, 100);
 		window.addEventListener('resize', setHeight);
-		// Drag & drop (skip when editing filename)
+		// Drag & drop
 		host.addEventListener('dragenter', (e) => {
 			e.preventDefault();
 			const active = host.shadowRoot && host.shadowRoot.activeElement;
 			if (active && active.tagName === 'INPUT') return;
-			dispatch(() => ({ type: 'SET_DRAGGING', payload: true }));
+			dispatch('SET_DRAGGING', true);
 		});
 		host.addEventListener('dragover', (e) => { e.preventDefault(); });
 		host.addEventListener('dragleave', (e) => {
-			if (!host.contains(e.relatedTarget)) {
-				dispatch(() => ({ type: 'SET_DRAGGING', payload: false }));
-			}
+			if (!host.contains(e.relatedTarget)) dispatch('SET_DRAGGING', false);
 		});
 		host.addEventListener('drop', (e) => {
 			e.preventDefault();
-			dispatch(() => ({ type: 'SET_DRAGGING', payload: false }));
+			dispatch('SET_DRAGGING', false);
 			if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
-				dispatch(() => ({ type: 'UPLOAD_FILES', payload: { files: e.dataTransfer.files } }));
+				dispatch('UPLOAD_FILES', { files: e.dataTransfer.files });
 			}
 		});
 	},
 
-	[COMPONENT_PROPERTY_CHANGED]: ({ action, updateState, properties }) => {
+	[COMPONENT_PROPERTY_CHANGED]: ({ action, dispatch, properties }) => {
 		const { name } = action.payload || {};
 		if ((name === 'sysid' || name === 'table') && properties.sysid) {
-			fetchAttachments(properties.table, properties.sysid, updateState);
+			dispatch('LIST_ATTACHMENTS', { table: properties.table, sysid: properties.sysid });
 			if (properties.enableParent) {
-				fetchParentChain(properties.table, properties.sysid, updateState);
+				dispatch('PARENT_FETCH_RECORD', { table: properties.table, sysid: properties.sysid });
 			}
 		}
 	},
 
-	'FETCH_ATTACHMENTS': ({ updateState, properties }) => {
-		fetchAttachments(properties.table, properties.sysid, updateState);
+	// ─── List attachments ───────────────────────────────────────────────────
+	'FETCH_ATTACHMENTS': ({ dispatch, properties }) => {
+		dispatch('LIST_ATTACHMENTS', { table: properties.table, sysid: properties.sysid });
 	},
 
-	'SELECT_ATTACHMENT': ({ action, updateState, state }) => {
+	'LIST_ATTACHMENTS': ({ dispatch, updateState, action }) => {
+		const { table, sysid, keepSelectedId } = action.payload;
+		updateState({ loading: true, _keepSelectedId: keepSelectedId || null });
+		dispatch('LIST_HTTP', {
+			sysparm_query: `table_name=${table}^table_sys_id=${sysid}`,
+			sysparm_limit: '200'
+		});
+	},
+
+	'LIST_HTTP': createHttpEffect('/api/now/attachment', {
+		method: 'GET',
+		queryParams: ['sysparm_query', 'sysparm_limit'],
+		successActionType: 'LIST_HTTP_SUCCESS',
+		errorActionType: 'LIST_HTTP_ERROR'
+	}),
+
+	'LIST_HTTP_SUCCESS': ({ action, dispatch, updateState, state }) => {
+		const result = Array.isArray(action.payload?.result) ? action.payload.result : [];
+		const attachments = result.map(mapAttachment);
+		const keepId = state._keepSelectedId;
+		const kept = keepId && attachments.find(a => a.sys_id === keepId);
+		const selected = kept || (attachments.length ? attachments[0] : null);
+		updateState({
+			attachments,
+			selectedId: selected ? selected.sys_id : null,
+			loading: false,
+			blobUrl: null, previewText: null, previewHtml: null,
+			previewSheets: null, docxData: null, activeSheet: 0,
+			_keepSelectedId: null
+		});
+		if (selected && PREVIEW_CATS.includes(getCategory(selected.file_type))) {
+			dispatch('PREVIEW_DOWNLOAD', { sys_id: selected.sys_id, cat: getCategory(selected.file_type) });
+		}
+	},
+
+	'LIST_HTTP_ERROR': ({ action, updateState }) => {
+		console.warn('[AV] list error', action.payload);
+		updateState({ loading: false, uploadError: 'Failed to load attachments' });
+	},
+
+	// ─── Preview download ───────────────────────────────────────────────────
+	'SELECT_ATTACHMENT': ({ action, dispatch, updateState, state }) => {
 		const sys_id = action.payload.sys_id;
-		updateState({ selectedId: sys_id, blobUrl: null, previewText: null, previewHtml: null, previewSheets: null, docxData: null, activeSheet: 0 });
-		const allParentAtts = (state.parentChain || []).flatMap(p => p.attachments);
-		const attachment = (state.attachments || []).find(a => a.sys_id === sys_id)
-			|| allParentAtts.find(a => a.sys_id === sys_id);
-		if (attachment) fetchPreview(attachment, updateState);
+		const att = findAttachment(state, sys_id);
+		if (!att) return;
+		const cat = getCategory(att.file_type);
+		updateState({
+			selectedId: sys_id,
+			blobUrl: null, previewText: null, previewHtml: null,
+			previewSheets: null, docxData: null, activeSheet: 0
+		});
+		if (PREVIEW_CATS.includes(cat)) {
+			dispatch('PREVIEW_DOWNLOAD', { sys_id, cat });
+		}
 	},
 
-	'OPEN_FILE_PICKER': ({ updateState, properties }) => {
+	// Binary preview download via the platform's own HTTP transport.
+	//
+	// `createHttpEffect` does not forward `responseType` to sn-http-request,
+	// but the underlying transport (exposed as `window.nowUiFramework.snHttp`)
+	// DOES support `responseType: 'blob'`. Calling it directly gives us:
+	// - Same authenticated cookie + X-UserToken handling as createHttpEffect
+	//   → no browser Basic-auth popup on session expiry.
+	// - A real Blob back, usable by docx-preview / xlsx / msgreader.
+	'PREVIEW_DOWNLOAD': ({ action, updateState }) => {
+		const { sys_id, cat } = action.payload;
+		updateState({ previewLoading: true, pendingPreviewId: sys_id, pendingPreviewCat: cat });
+		const snHttp = window.nowUiFramework && window.nowUiFramework.snHttp;
+		if (!snHttp) {
+			console.warn('[AV] preview: nowUiFramework.snHttp unavailable');
+			updateState({ previewLoading: false, pendingPreviewId: null, pendingPreviewCat: null });
+			return;
+		}
+		// batch: false — otherwise snHttp wraps this in /api/now/batch which
+		// multiplexes responses and can't pass a Blob back cleanly.
+		snHttp.request(`/api/now/attachment/${sys_id}/file`, 'GET', { responseType: 'blob', batch: false })
+			.then(res => {
+				const blob = res && (res.data instanceof Blob ? res.data : (res instanceof Blob ? res : null));
+				if (!blob) throw new Error('preview: unexpected response');
+				processPreviewBlob(blob, cat, updateState);
+			})
+			.catch(err => {
+				console.warn('[AV] preview error', err);
+				updateState({ previewLoading: false, pendingPreviewId: null, pendingPreviewCat: null });
+			});
+	},
+
+	// ─── Upload ─────────────────────────────────────────────────────────────
+	'OPEN_FILE_PICKER': ({ dispatch }) => {
 		const input = document.createElement('input');
 		input.type = 'file';
 		input.multiple = true;
 		input.onchange = () => {
-			if (input.files.length) {
-				uploadFiles(input.files, properties.table, properties.sysid, updateState);
-			}
+			if (input.files.length) dispatch('UPLOAD_FILES', { files: input.files });
 		};
 		input.click();
 	},
 
-	'UPLOAD_FILES': ({ action, updateState, properties }) => {
-		uploadFiles(action.payload.files, properties.table, properties.sysid, updateState);
+	'UPLOAD_FILES': ({ action, dispatch, updateState, properties }) => {
+		const files = Array.from(action.payload.files || []);
+		if (!files.length || !properties.sysid) return;
+		const tooLarge = files.filter(f => f.size > MAX_FILE_SIZE);
+		if (tooLarge.length) {
+			const names = tooLarge.map(f => `${f.name} (${formatSize(f.size)})`).join(', ');
+			updateState({ uploadError: `File(s) too large (max ${formatSize(MAX_FILE_SIZE)}): ${names}` });
+			return;
+		}
+		updateState({ uploading: true, uploadError: null, _uploadPending: files.length });
+		files.forEach(file => {
+			const fd = new FormData();
+			fd.append('table_name', properties.table);
+			fd.append('table_sys_id', properties.sysid);
+			fd.append('uploadFile', file, file.name);
+			dispatch('UPLOAD_HTTP', { formData: fd, _fileName: file.name });
+		});
 	},
 
+	'UPLOAD_HTTP': createHttpEffect('/api/now/attachment/upload', {
+		method: 'POST',
+		dataParam: 'formData',
+		successActionType: 'UPLOAD_HTTP_SUCCESS',
+		errorActionType: 'UPLOAD_HTTP_ERROR'
+	}),
+
+	'UPLOAD_HTTP_SUCCESS': ({ dispatch, updateState, state, properties }) => {
+		const remaining = (state._uploadPending || 1) - 1;
+		updateState({ _uploadPending: remaining });
+		if (remaining <= 0) {
+			updateState({ uploading: false, _uploadPending: 0 });
+			dispatch('LIST_ATTACHMENTS', { table: properties.table, sysid: properties.sysid });
+		}
+	},
+
+	'UPLOAD_HTTP_ERROR': ({ action, dispatch, updateState, state, properties }) => {
+		console.warn('[AV] upload error', action.payload);
+		const remaining = (state._uploadPending || 1) - 1;
+		const msg = action.payload?.statusText || action.payload?.message || 'Upload failed';
+		updateState({ _uploadPending: remaining, uploadError: msg });
+		if (remaining <= 0) {
+			updateState({ uploading: false, _uploadPending: 0 });
+			dispatch('LIST_ATTACHMENTS', { table: properties.table, sysid: properties.sysid });
+		}
+	},
+
+	// ─── Rename ─────────────────────────────────────────────────────────────
 	'START_RENAME': ({ action, updateState }) => {
 		const fileName = action.payload;
 		const lastDot = fileName.lastIndexOf('.');
@@ -1001,7 +984,7 @@ const actionHandlers = {
 		updateState({ editingName: null, editingExt: null });
 	},
 
-	'SAVE_RENAME': ({ action, state, updateState, properties }) => {
+	'SAVE_RENAME': ({ action, state, dispatch, updateState }) => {
 		const nameOnly = (action.payload?.value || state.editingName || '').trim();
 		const ext = state.editingExt || '';
 		const selected = (state.attachments || []).find(a => a.sys_id === state.selectedId);
@@ -1010,22 +993,131 @@ const actionHandlers = {
 			updateState({ editingName: null, editingExt: null });
 			return;
 		}
-		updateState({ editingName: null, editingExt: null });
-		fetch(`/api/now/table/sys_attachment/${selected.sys_id}`, {
-			method: 'PATCH',
-			credentials: 'same-origin',
-			headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...getAuthHeaders() },
-			body: JSON.stringify({ file_name: fullName })
-		})
-			.then(res => {
-				if (!res.ok) throw new Error('Rename failed: ' + res.status);
-				fetchAttachments(properties.table, properties.sysid, updateState, selected.sys_id);
-			})
-			.catch(err => {
-				updateState({ uploadError: err.message });
-			});
+		updateState({ editingName: null, editingExt: null, _renameKeepId: selected.sys_id });
+		dispatch('RENAME_HTTP', { sys_id: selected.sys_id, data: { file_name: fullName } });
 	},
 
+	'RENAME_HTTP': createHttpEffect('/api/now/table/sys_attachment/:sys_id', {
+		method: 'PATCH',
+		pathParams: ['sys_id'],
+		dataParam: 'data',
+		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+		successActionType: 'RENAME_HTTP_SUCCESS',
+		errorActionType: 'RENAME_HTTP_ERROR'
+	}),
+
+	'RENAME_HTTP_SUCCESS': ({ dispatch, state, properties }) => {
+		dispatch('LIST_ATTACHMENTS', { table: properties.table, sysid: properties.sysid, keepSelectedId: state._renameKeepId });
+	},
+
+	'RENAME_HTTP_ERROR': ({ action, updateState }) => {
+		updateState({ uploadError: action.payload?.statusText || 'Rename failed' });
+	},
+
+	// ─── Delete ─────────────────────────────────────────────────────────────
+	'CONFIRM_DELETE': ({ action, updateState }) => {
+		updateState({ confirmDelete: action.payload });
+	},
+
+	'DISMISS_DELETE': ({ updateState }) => {
+		updateState({ confirmDelete: null });
+	},
+
+	'DELETE_ATTACHMENT': ({ action, dispatch, updateState }) => {
+		updateState({ confirmDelete: null, deleting: true });
+		dispatch('DELETE_HTTP', { sys_id: action.payload.sys_id });
+	},
+
+	'DELETE_HTTP': createHttpEffect('/api/now/attachment/:sys_id', {
+		method: 'DELETE',
+		pathParams: ['sys_id'],
+		successActionType: 'DELETE_HTTP_SUCCESS',
+		errorActionType: 'DELETE_HTTP_ERROR'
+	}),
+
+	'DELETE_HTTP_SUCCESS': ({ dispatch, updateState, properties }) => {
+		updateState({ deleting: false });
+		dispatch('LIST_ATTACHMENTS', { table: properties.table, sysid: properties.sysid });
+	},
+
+	'DELETE_HTTP_ERROR': ({ action, updateState }) => {
+		updateState({ deleting: false, uploadError: action.payload?.statusText || 'Delete failed' });
+	},
+
+	// ─── Parent chain (recursive 3-step traversal) ──────────────────────────
+	// Step 1: get .parent of current record
+	'PARENT_FETCH_RECORD': ({ action, dispatch, state, updateState }) => {
+		const { table, sysid } = action.payload;
+		const seen = state._parentSeen || new Set();
+		if (seen.has(sysid)) return;
+		seen.add(sysid);
+		updateState({ _parentSeen: seen, _parentChainBuild: state._parentChainBuild || [] });
+		dispatch('PARENT_RECORD_HTTP', { table, sys_id: sysid });
+	},
+
+	'PARENT_RECORD_HTTP': createHttpEffect('/api/now/table/:table/:sys_id', {
+		method: 'GET',
+		pathParams: ['table', 'sys_id'],
+		queryParams: ['sysparm_fields', 'sysparm_display_value'],
+		successActionType: 'PARENT_RECORD_HTTP_SUCCESS',
+		errorActionType: 'PARENT_CHAIN_DONE'
+	}),
+
+	'PARENT_RECORD_HTTP_SUCCESS': ({ action, dispatch, state, updateState }) => {
+		const parent = action.payload?.result?.parent;
+		if (!parent || !parent.value || (state._parentSeen && state._parentSeen.has(parent.value))) {
+			updateState({ parentChain: state._parentChainBuild || [], _parentSeen: null, _parentChainBuild: null });
+			return;
+		}
+		// Step 2: resolve actual table via sys_class_name
+		dispatch('PARENT_TASK_HTTP', { sys_id: parent.value, _parentValue: parent.value, _parentDisplay: parent.display_value });
+		updateState({ _pendingParentValue: parent.value, _pendingParentDisplay: parent.display_value });
+	},
+
+	'PARENT_TASK_HTTP': createHttpEffect('/api/now/table/task/:sys_id', {
+		method: 'GET',
+		pathParams: ['sys_id'],
+		queryParams: ['sysparm_fields', 'sysparm_display_value', 'sysparm_limit'],
+		successActionType: 'PARENT_TASK_HTTP_SUCCESS',
+		errorActionType: 'PARENT_CHAIN_DONE'
+	}),
+
+	'PARENT_TASK_HTTP_SUCCESS': ({ action, dispatch, state, updateState }) => {
+		const r = action.payload?.result;
+		const parentTable = r?.sys_class_name?.value || r?.sys_class_name || 'task';
+		const number = r?.number?.display_value || r?.number || state._pendingParentDisplay || state._pendingParentValue;
+		const sysid = state._pendingParentValue;
+		const entry = { table: parentTable, sysid, display: number, attachments: [] };
+		const chain = (state._parentChainBuild || []).concat(entry);
+		updateState({ _parentChainBuild: chain, _pendingParentTable: parentTable });
+		// Step 3: fetch attachments for this parent
+		dispatch('PARENT_ATT_HTTP', {
+			sysparm_query: `table_name=${parentTable}^table_sys_id=${sysid}`,
+			sysparm_limit: '200'
+		});
+	},
+
+	'PARENT_ATT_HTTP': createHttpEffect('/api/now/attachment', {
+		method: 'GET',
+		queryParams: ['sysparm_query', 'sysparm_limit'],
+		successActionType: 'PARENT_ATT_HTTP_SUCCESS',
+		errorActionType: 'PARENT_CHAIN_DONE'
+	}),
+
+	'PARENT_ATT_HTTP_SUCCESS': ({ action, dispatch, state, updateState }) => {
+		const result = Array.isArray(action.payload?.result) ? action.payload.result : [];
+		const chain = (state._parentChainBuild || []).slice();
+		if (chain.length) chain[chain.length - 1].attachments = result.map(mapAttachment);
+		updateState({ _parentChainBuild: chain, parentChain: chain });
+		// Recurse: get this parent's parent
+		dispatch('PARENT_FETCH_RECORD', { table: state._pendingParentTable, sysid: state._pendingParentValue });
+	},
+
+	'PARENT_CHAIN_DONE': ({ state, updateState }) => {
+		updateState({ parentChain: state._parentChainBuild || [], _parentSeen: null, _parentChainBuild: null });
+	},
+
+	// ─── UI state ───────────────────────────────────────────────────────────
 	'SET_DRAGGING': ({ action, updateState }) => {
 		updateState({ dragging: action.payload });
 	},
@@ -1044,33 +1136,7 @@ const actionHandlers = {
 
 	'DISMISS_ERROR': ({ updateState }) => {
 		updateState({ uploadError: null });
-	},
-
-	'CONFIRM_DELETE': ({ action, updateState }) => {
-		updateState({ confirmDelete: action.payload });
-	},
-
-	'DISMISS_DELETE': ({ updateState }) => {
-		updateState({ confirmDelete: null });
-	},
-
-	'DELETE_ATTACHMENT': ({ action, updateState, properties }) => {
-		const { sys_id } = action.payload;
-		updateState({ confirmDelete: null, deleting: true });
-		fetch(`/api/now/attachment/${sys_id}`, {
-			method: 'DELETE',
-			credentials: 'same-origin',
-			headers: { Accept: 'application/json' }
-		})
-			.then(res => {
-				if (!res.ok) throw new Error('Delete failed:' + res.status);
-				updateState({ deleting: false });
-				fetchAttachments(properties.table, properties.sysid, updateState);
-			})
-			.catch(err => {
-				updateState({ deleting: false, uploadError: err.message });
-			});
-	},
+	}
 };
 
 // ─── Register ───────────────────────────────────────────────────────────────
